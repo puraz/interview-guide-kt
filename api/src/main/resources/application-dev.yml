@@ -1,0 +1,22 @@
+# 开发环境配置
+spring:
+  datasource:
+    # url: jdbc:mysql://127.0.0.1:3306/lifesim?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
+    # username: root
+    # password: Zc112528#
+    url: jdbc:mysql://8.138.250.57:3306/lifesim?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
+    username: root
+    password: An@M5y5bHGKG87FC
+  data:
+    redis:
+      timeout: 10s
+      host: 127.0.0.1
+      port: 6379
+      password: 123456
+
+# 开发环境可以启用更多调试功能
+zeta:
+  database:
+    druid:
+      stat-view-servlet:
+        enabled: true

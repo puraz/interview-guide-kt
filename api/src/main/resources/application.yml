@@ -1,0 +1,248 @@
+# 端口
+server:
+  port: 2528
+
+deepseek:
+  api-keys:
+    - sk-00e778363c28481999888b34259d540d
+
+# AI 统一大模型调用配置（业务层只依赖 AiChatClient）
+ai:
+  chat:
+    provider: deepseek # 当前使用的模型提供方：deepseek/openai/qwen // 切换只改配置不改代码
+    deepseek:
+      base-url: https://api.deepseek.com # DeepSeek OpenAI 兼容入口（不带 /chat/completions）// 支持私有化/代理
+      default-model: deepseek-chat # 默认模型名（业务不指定 model 时生效）// 可统一灰度切换
+      default-temperature: 1.0 # 默认温度（业务不指定 temperature 时生效）// 与旧实现保持一致
+      default-max-tokens: # 默认最大输出 token（为空表示交给模型默认策略）// 兼容旧 WorkflowService 行为
+      timeout: 600s # 超时时间：避免长时间占用线程 // 建议 60s~180s
+    text-generation:
+      base-url: https://api.302ai.cn/v1/ # 文本生成 OpenAI 兼容入口（不带 /chat/completions）// Cook 场景固定使用
+      api-key: ${TEXT_GENERATION_API_KEY:sk-ur9FMg39SqiML1mU4wZokdBG45GWeWw3zSZQJchOx2j3uI8k} # 文本生成 ApiKey（不要提交到 git）// 为空会导致 Cook 生成失败
+      default-model: doubao-1.5-pro-32k # 文本生成默认模型（Cook 菜谱生成使用）//
+      default-temperature: 0.7 # 文本生成默认温度（Cook 菜谱生成使用）//
+      default-max-tokens: # 默认最大输出 token（为空表示交给模型默认策略）//
+      timeout: 300s # 超时时间：与前端 300000ms 对齐//
+  image-generation:
+    base-url: https://open.bigmodel.cn/api/paas/v4/images/generations # 图片生成接口地址（完整 endpoint）//
+    api-key: ${IMAGE_GENERATION_API_KEY:e74dbf99210f4a539157c8d0f5b3bae3.XUEeUM0RA2s0wMWV} # 图片生成 ApiKey（不要提交到 git）// 为空会导致图片生成失败
+    model: cogview-3-flash # 图片生成模型（CookDailyPlan 图片生成使用）//
+    timeout: 300s # 超时时间：与前端 300000ms 对齐//
+
+zeta:
+  # 操作日志配置
+  log:
+    # 记录用户操作日志
+    enabled: true
+  # swagger 文档通用配置
+  swagger:
+    # 标题
+    title: 在线文档
+    # 描述
+    description: 项目接口文档
+    # 自定义组名 默认：default
+    group: default
+    # 版本
+    version: 1.1.12
+    # swagger会解析的包路径
+    base-package: com.example
+    # 服务URL
+    termsOfServiceUrl: http://localhost:8080
+    contact:
+      # 联系人
+      name: gcc
+  # token配置
+  token:
+    # 请求头中token参数的名字 Authorization: xxxxx
+    tokenName: Authorization
+    # token类型 DEFAULT、SIMPLE、MIXIN、STATELESS
+    type: DEFAULT
+    # jwt签名前缀 例如填写 Bearer 实际传参 token: Bearer xxxxxx
+    prefix:
+    # jwt签名加密key 仅当type不为DEFAULT时有效
+    signerKey: zeta-kotlin
+    # token过期时间 单位：秒, -1代表永不过期, 目前是半个月
+    expireTime: 1296000
+    # token自动续期
+    auto-renew: true
+  # security配置
+  security:
+    ignore:
+      # 忽略鉴权的地址
+      ignoreUrl:
+        - /**/noToken/**
+        - /openapi.yml
+        - /openapi.html
+        - /api/user/list
+  # XSS防护配置
+  xss:
+    # XSS防护开关 默认：false
+    enabled: false
+    # 忽略xss防护的地址
+    excludeUrl:
+      - /**/noxss/**
+      # ↓↓ 忘记为啥要忽略了 ↓↓
+      #- /**/page
+      #- /**/query
+      # 忽略指定接口的xss防护
+      - /api/test/test1
+      # 忽略新增、修改接口的xss防护
+      - POST:/api/demo
+      - PUT:/api/demo
+  # 加密解密配置
+  crypto:
+    aes:
+      # AES加密秘钥 长度规定：16、24、32
+      cryptoKey: 'kwYkDdgVXcqK03E3zioyr3ocMYmf4XYh'
+      # AES加密盐
+      cryptoIv: ''
+      # 加密模式 默认：ECB
+      mode: ECB
+      # 填充方式 默认：PKCS5Padding
+      padding: PKCS5Padding
+  # websocket配置
+  websocket:
+    enabled: true
+  # 文件存储配置
+  file:
+    # 文件存储策略 LOCAL、ALI_OSS、MINIO、QINIU
+    storageType: QINIU
+    # 本地存储配置 仅当zeta.file.storageType=LOCAL时有效
+    local:
+      bucket: zeta
+      # web访问地址  需要配置nginx
+      endpoint: http://127.0.0.1/file/
+      # 文件存放路径
+      storagePath: ./upload
+    # 阿里云存储配置 仅当zeta.file.storageType=ALI_OSS时有效
+    ali:
+      bucket: zeta
+      endpoint: oss-cn-guangzhou.aliyuncs.com
+      accessKeyId: 'alioss'
+      accessKeySecret: 'alioss123'
+    # Minio存储配置 仅当zeta.file.storageType=MINIO时有效
+    minio:
+      bucket: zeta
+      # minio地址+端口号
+      endpoint: http://127.0.0.1:9000/
+      accessKey: 'minio'
+      secretKey: 'minio123'
+    # 七牛云存储配置 仅当zeta.file.storageType=QINIU时有效
+    qiniu:
+      bucket: lcai
+      endpoint: s3.cn-south-1.qiniucs.com
+      accessKeyId: 'ZqDfIYfiuxpI4wCaTg52UtSPs7RYvlCcR4Ews71x'
+      accessKeySecret: 'Wti36wcRqb_G6LapXPCKyqIccKPKdtTV3ok6njqw'
+      urlPrefix: 'https://cdn.xwkjyn.com/'
+
+# spring配置
+spring:
+  application:
+    name: zeta-kotlin
+  # 多环境配置
+  profiles:
+    active: dev
+  # mvc
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+  # 数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    type: com.alibaba.druid.pool.DruidDataSource
+    # druid配置
+    druid:
+      initial-size: 5
+      min-idle: 5
+      max-active: 20
+      max-wait: 30000
+      time-between-eviction-runs-millis: 60000
+      min-evictable-idle-time-millis: 300000
+      test-while-idle: true
+      test-on-borrow: true
+      test-on-return: false
+      remove-abandoned: true
+      remove-abandoned-timeout: 1800
+      pool-prepared-statements: false
+      # max-pool-prepared-statement-per-connection-size: 20
+      filters: stat, wall
+      filter:
+        wall:
+          enabled: true # 启用 WallFilter // 用于 SQL 注入防护
+          config:
+            comment-allow: true # 允许 SQL 注释 // 兼容 Jimmer 自动生成的优化注释（如 reverse sorting optimization），避免被 Druid 误判为注入
+      validation-query: SELECT 'x'
+      aop-patterns: com.xwkj.*.*.service.*
+      stat-view-servlet:
+        url-pattern: /druid/*
+        reset-enable: true
+        login-username: admin
+        login-password: admin
+        enabled: true
+  # 设置上传文件大小
+  servlet:
+    multipart:
+      max-file-size: 1024MB
+      max-request-size: 1024MB
+
+springdoc:
+  api-docs:
+    # OpenAPI 3 文档地址（JSON）
+    path: /v3/api-docs
+  swagger-ui:
+    # Swagger UI 地址（会重定向到 /swagger-ui/index.html）
+    path: /swagger-ui.html
+
+# Sa-Token配置 https://sa-token.cc/doc.html#/use/config
+sa-token:
+  # token名称 (同时也是cookie名称)
+  token-name: Authorization
+  # token有效期 1天，单位s 默认30天, -1代表永不过期，目前是15天
+  timeout: 1296000
+  # jwt秘钥 仅当zeta.token.type不为DEFAULT时有效
+  jwt-secret-key: zeta-kotlin
+  # token临时有效期 (指定时间内无操作就视为token过期) 单位: 秒
+  active-timeout: -1
+  # 是否启用动态 activeTimeout 功能，如不需要请设置为 false，节省缓存请求次数
+  dynamic-active-timeout: false
+  # 是否允许同一账号并发登录 (为true时允许一起登录, 为false时新登录挤掉旧登录)
+  is-concurrent: true
+  # 在多人登录同一账号时，是否共用一个token (为true时所有登录共用一个token, 为false时每次登录新建一个token)
+  is-share: false
+  # 是否尝试从 cookie 里读取 Token，此值为 false 后，StpUtil.login(id) 登录时也不会再往前端注入Cookie
+  is-read-cookie: false
+  # 是否输出操作日志
+  is-log: false
+  # 是否在初始化配置时打印版本字符画
+  is-print: false
+  # 指定 token 提交时的前缀
+  token-prefix:
+  # 自定义token样式
+  token-style: tik
+
+jimmer:
+  # This is very important,
+  # With this configuration,
+  # `jimmer-spring-starter` will create `KSqlClient` for kotlin;
+  # otherwise, it will create `JSqlClient` for java.
+  language: kotlin
+
+  database-validation-mode: ERROR
+  show-sql: true
+  pretty-sql: true
+  inline-sql-variables: true
+  executor-context-prefixes:
+    com.example.business
+  client:
+    ts:
+      path: /ts.zip
+    openapi:
+      path: /openapi.yml
+      ui-path: /openapi.html
+      properties:
+        info:
+          title: Jimmer Demo
+          description: This is the OpenAPI UI of Jimmer Demo
+          version: 0.9.55
+  dialect: org.babyfish.jimmer.sql.dialect.PostgresDialect
+
