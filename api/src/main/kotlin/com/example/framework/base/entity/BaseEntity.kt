@@ -24,7 +24,7 @@ interface BaseEntity {
      */
     @get:JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     @Column(name = "created_at")
-    val createdAt: LocalDateTime?
+    val createdAt: LocalDateTime
 
     /**
      * The time when the object was last modified

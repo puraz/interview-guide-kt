@@ -129,6 +129,10 @@ dependencies {
         exclude(group = "cn.hutool", module = "hutool-all")
     }
 
+    // PDF 导出相关（iText 8）
+    implementation("com.itextpdf:itext-core:8.0.5")
+    implementation("com.itextpdf:font-asian:8.0.5")
+
     // LangChain4j（大模型统一调用框架）
     implementation("dev.langchain4j:langchain4j:${langchain4jVersion}") // 核心抽象与通用能力 // 业务层只依赖自定义 AiChatClient
     implementation("dev.langchain4j:langchain4j-open-ai:${langchain4jVersion}") // OpenAI 兼容实现（DeepSeek 兼容）// 用于 DeepSeek Adapter

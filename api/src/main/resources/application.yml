@@ -29,6 +29,12 @@ ai:
     model: cogview-3-flash # 图片生成模型（CookDailyPlan 图片生成使用）//
     timeout: 300s # 超时时间：与前端 300000ms 对齐//
 
+app:
+  interview:
+    follow-up-count: 1 # 面试问题追问数量 // 生成主问题时的追问条数
+    evaluation:
+      batch-size: 8 # 面试评估单批次题目数量 // 避免一次性输入过长
+
 zeta:
   # 操作日志配置
   log:

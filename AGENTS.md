@@ -20,7 +20,7 @@
 `// xxx 注释内容 //`，这种后面多了个` //`
 这种方式注释
 xxx注释，原有代码中没有注释的也要补充完整的注释
-3.接口参数少时使用@RequestParam接收，多时定义一个实体，实体的名称要以Param结尾，使用@RequestBody接收，不要使用@PathVariable
+3.接口参数少时使用@RequestParam接收，多时定义一个实体，实体的名称要以Param结尾，使用@RequestBody接收；默认不使用@PathVariable，但为对齐 interview 模块的原始RESTful路径，允许在面试模块中使用@PathVariable
 4.逻辑过多时可以定义service，并写在service中
 5.不要执行gradlew命令，不要做任何测试的形为
 6.代码编写优雅，逻辑清晰，命名规范，注释充分，复用性强，高内聚、低耦合，高可用！
