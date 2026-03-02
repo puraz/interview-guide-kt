@@ -1,6 +1,7 @@
 package com.example.framework.base.entity
 
 import com.fasterxml.jackson.annotation.JsonFormat
+import org.babyfish.jimmer.sql.Column
 import org.babyfish.jimmer.sql.MappedSuperclass
 import java.time.LocalDateTime
 
@@ -22,6 +23,7 @@ interface BaseEntity {
      * but is automatically modified by `DraftInterceptor`
      */
     @get:JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @Column(name = "created_at")
     val createdAt: LocalDateTime?
 
     /**
@@ -32,6 +34,7 @@ interface BaseEntity {
      * but is automatically modified by `DraftInterceptor`
      */
     @get:JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @Column(name = "updated_at")
     val updatedAt: LocalDateTime?
 
 }

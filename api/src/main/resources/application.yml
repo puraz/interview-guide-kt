@@ -148,8 +148,11 @@ spring:
       matching-strategy: ant_path_matcher
   # 数据源配置
   datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
+    driver-class-name: org.postgresql.Driver
     type: com.alibaba.druid.pool.DruidDataSource
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:interview_guide}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:123456}
     # druid配置
     druid:
       initial-size: 5
@@ -245,4 +248,3 @@ jimmer:
           description: This is the OpenAPI UI of Jimmer Demo
           version: 0.9.55
   dialect: org.babyfish.jimmer.sql.dialect.PostgresDialect
-
