@@ -1,11 +1,11 @@
 package com.example.business.repository
 
 import com.example.business.entity.RagChatMessageEntity
-import org.babyfish.jimmer.spring.repository.KRepository
+import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.stereotype.Repository
 
 /**
  * RAG 消息仓库
  */
 @Repository
-interface RagChatMessageRepository : KRepository<RagChatMessageEntity, Long>
+interface RagChatMessageRepository : JpaRepository<RagChatMessageEntity, Long>

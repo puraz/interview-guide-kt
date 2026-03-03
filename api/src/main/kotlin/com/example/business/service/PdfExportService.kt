@@ -61,7 +61,7 @@ class PdfExportService {
         document.add(Paragraph("会话ID: ${session.sessionId}"))
         document.add(Paragraph("题目数量: ${session.totalQuestions ?: 0}"))
         document.add(Paragraph("面试状态: ${getStatusText(session.status)}"))
-        document.add(Paragraph("开始时间: ${session.createdAt?.let { dateFormat.format(it) } ?: "未知"}"))
+        document.add(Paragraph("开始时间: ${dateFormat.format(session.createdAt)}"))
         if (session.completedAt != null) {
             document.add(Paragraph("完成时间: ${dateFormat.format(session.completedAt)}"))
         }

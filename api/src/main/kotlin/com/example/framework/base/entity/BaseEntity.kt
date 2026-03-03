@@ -1,19 +1,16 @@
 package com.example.framework.base.entity
 
 import com.fasterxml.jackson.annotation.JsonFormat
-import org.babyfish.jimmer.sql.Column
-import org.babyfish.jimmer.sql.MappedSuperclass
+import jakarta.persistence.Column
+import jakarta.persistence.MappedSuperclass
 import java.time.LocalDateTime
 
 /**
- * 基础实体 - Jimmer版本
+ * 基础实体 - JPA版本
  * 包含通用的创建时间、修改时间
  */
-/*
- * see CommonEntityDraftInterceptor
- */
 @MappedSuperclass
-interface BaseEntity {
+open class BaseEntity {
 
     /**
      * The time when the object was created.
@@ -23,8 +20,8 @@ interface BaseEntity {
      * but is automatically modified by `DraftInterceptor`
      */
     @get:JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    @Column(name = "created_at")
-    val createdAt: LocalDateTime
+    @Column(name = "created_at", nullable = false)
+    open lateinit var createdAt: LocalDateTime
 
     /**
      * The time when the object was last modified
@@ -35,6 +32,5 @@ interface BaseEntity {
      */
     @get:JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     @Column(name = "updated_at")
-    val updatedAt: LocalDateTime?
-
+    open var updatedAt: LocalDateTime? = null
 }

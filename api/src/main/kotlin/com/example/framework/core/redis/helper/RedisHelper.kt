@@ -193,6 +193,15 @@ class RedisHelper(private val redisTemplate: RedisTemplate<String, Any>) {
      */
     fun <T> returnVal(value: T): T? = if (isNullVal(value)) null else value
 
+    /**
+     * 过滤空key，保证Redis操作的key集合为非空字符串
+     * @param keys Collection<String?>
+     * @return List<String>
+     */
+    private fun filterNotNullKeys(keys: Collection<String?>): List<String> {
+        return keys.filterNotNull()
+    }
+
     /** -------------------string相关操作--------------------- */
 
     /**
@@ -256,7 +265,7 @@ class RedisHelper(private val redisTemplate: RedisTemplate<String, Any>) {
      * @param keys
      * @return
      */
-    fun multiGet(keys: Collection<String>): MutableList<Any>? {
+    fun multiGet(keys: Collection<String>): MutableList<Any?>? {
         return valueOps.multiGet(keys)
     }
 
@@ -265,7 +274,12 @@ class RedisHelper(private val redisTemplate: RedisTemplate<String, Any>) {
      * @param maps Map<String, Any?>
      */
     fun multiSet(maps: Map<String, Any?>) {
-        valueOps.multiSet(maps)
+        val safeMaps = HashMap<String, Any>(maps.size)
+        // Redis不支持null值，这里统一转换为NullVal占位
+        maps.forEach { (key: String, value: Any?) ->
+            safeMaps[key] = value ?: createNullVal()
+        }
+        valueOps.multiSet(safeMaps)
     }
 
     /**
@@ -274,7 +288,12 @@ class RedisHelper(private val redisTemplate: RedisTemplate<String, Any>) {
      * @return Boolean?
      */
     fun multiSetIfAbsent(maps: Map<String, Any?>): Boolean? {
-        return valueOps.multiSetIfAbsent(maps)
+        val safeMaps = HashMap<String, Any>(maps.size)
+        // Redis不支持null值，这里统一转换为NullVal占位
+        maps.forEach { (key: String, value: Any?) ->
+            safeMaps[key] = value ?: createNullVal()
+        }
+        return valueOps.multiSetIfAbsent(safeMaps)
     }
 
     /**
@@ -376,7 +395,8 @@ class RedisHelper(private val redisTemplate: RedisTemplate<String, Any>) {
      * @return
      */
     fun hDelete(key: String, vararg fields: Any?): Long {
-        return hashOps.delete(key, *fields)
+        val safeFields = fields.filterNotNull().toTypedArray()
+        return hashOps.delete(key, *safeFields)
     }
 
     /**
@@ -737,7 +757,7 @@ class RedisHelper(private val redisTemplate: RedisTemplate<String, Any>) {
      * @return
      */
     fun sIntersect(key: String, otherKeys: Collection<String?>): MutableSet<Any>? {
-        return setOps.intersect(key, otherKeys)
+        return setOps.intersect(key, filterNotNullKeys(otherKeys))
     }
 
     /**
@@ -759,7 +779,7 @@ class RedisHelper(private val redisTemplate: RedisTemplate<String, Any>) {
      * @return
      */
     fun sIntersectAndStore(key: String, otherKeys: Collection<String?>, destKey: String): Long? {
-        return setOps.intersectAndStore(key, otherKeys, destKey)
+        return setOps.intersectAndStore(key, filterNotNullKeys(otherKeys), destKey)
     }
 
     /**
@@ -779,7 +799,7 @@ class RedisHelper(private val redisTemplate: RedisTemplate<String, Any>) {
      * @return
      */
     fun <V> sUnion(key: String, otherKeys: Collection<String?>): MutableSet<Any>? {
-        return setOps.union(key, otherKeys)
+        return setOps.union(key, filterNotNullKeys(otherKeys))
     }
 
     /**
@@ -801,7 +821,7 @@ class RedisHelper(private val redisTemplate: RedisTemplate<String, Any>) {
      * @return
      */
     fun sUnionAndStore(key: String, otherKeys: Collection<String?>, destKey: String): Long? {
-        return setOps.unionAndStore(key, otherKeys, destKey)
+        return setOps.unionAndStore(key, filterNotNullKeys(otherKeys), destKey)
     }
 
     /**
@@ -821,7 +841,7 @@ class RedisHelper(private val redisTemplate: RedisTemplate<String, Any>) {
      * @return
      */
     fun <V> sDifference(key: String, otherKeys: Collection<String?>): MutableSet<Any>? {
-        return setOps.difference(key, otherKeys)
+        return setOps.difference(key, filterNotNullKeys(otherKeys))
     }
 
     /**
@@ -843,7 +863,7 @@ class RedisHelper(private val redisTemplate: RedisTemplate<String, Any>) {
      * @return
      */
     fun sDifference(key: String, otherKeys: Collection<String?>, destKey: String): Long? {
-        return setOps.differenceAndStore(key, otherKeys, destKey)
+        return setOps.differenceAndStore(key, filterNotNullKeys(otherKeys), destKey)
     }
 
     /**
@@ -921,7 +941,8 @@ class RedisHelper(private val redisTemplate: RedisTemplate<String, Any>) {
      * @return
      */
     fun zRemove(key: String, vararg values: Any?): Long? {
-        return zSetOps.remove(key, *values)
+        val safeValues = values.filterNotNull().toTypedArray()
+        return zSetOps.remove(key, *safeValues)
     }
 
     /**
@@ -1156,7 +1177,7 @@ class RedisHelper(private val redisTemplate: RedisTemplate<String, Any>) {
      * @return
      */
     fun zUnionAndStore(key: String, otherKeys: Collection<String?>, destKey: String): Long? {
-        return zSetOps.unionAndStore(key, otherKeys, destKey)
+        return zSetOps.unionAndStore(key, filterNotNullKeys(otherKeys), destKey)
     }
 
     /**
@@ -1178,7 +1199,7 @@ class RedisHelper(private val redisTemplate: RedisTemplate<String, Any>) {
      * @return
      */
     fun zIntersectAndStore(key: String, otherKeys: Collection<String?>, destKey: String): Long? {
-        return zSetOps.intersectAndStore(key, otherKeys, destKey)
+        return zSetOps.intersectAndStore(key, filterNotNullKeys(otherKeys), destKey)
     }
 
     /**

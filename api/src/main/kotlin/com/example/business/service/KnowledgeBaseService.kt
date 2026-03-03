@@ -1,6 +1,9 @@
 package com.example.business.service
 
+import com.example.business.entity.KnowledgeBaseEntity
+import com.example.business.entity.RagChatMessageEntity
 import com.example.business.enums.VectorStatus
+import com.example.business.repository.KnowledgeBaseRepository
 import com.example.framework.ai.chat.AiChatClient
 import com.example.framework.ai.chat.AiChatMessage
 import com.example.framework.ai.chat.AiChatRequest
@@ -9,6 +12,8 @@ import com.example.framework.core.exception.BusinessException
 import com.example.framework.core.utils.stripCodeFences
 import com.example.framework.extra.file.model.FileDeleteParam
 import com.example.framework.extra.file.strategy.FileContext
+import jakarta.persistence.EntityManager
+import jakarta.persistence.PersistenceContext
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotEmpty
 import org.apache.tika.Tika
@@ -17,8 +22,6 @@ import org.apache.tika.metadata.TikaCoreProperties
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.core.io.Resource
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.multipart.MultipartFile
@@ -37,8 +40,7 @@ import kotlin.concurrent.thread
 @Service
 class KnowledgeBaseService(
     private val aiChatClient: AiChatClient,
-    private val jdbcTemplate: JdbcTemplate,
-    private val namedParameterJdbcTemplate: NamedParameterJdbcTemplate,
+    private val knowledgeBaseRepository: KnowledgeBaseRepository,
     private val fileContext: FileContext,
     private val vectorService: KnowledgeBaseVectorService,
     private val vectorizeStreamProducer: com.example.business.listener.VectorizeStreamProducer,
@@ -68,6 +70,9 @@ class KnowledgeBaseService(
     private val systemPrompt: String = readResource(systemPromptResource)
     private val userPromptTemplate: String = readResource(userPromptResource)
     private val rewritePromptTemplate: String = readResource(rewritePromptResource)
+
+    @PersistenceContext
+    private lateinit var entityManager: EntityManager
 
     /**
      * 上传知识库
@@ -150,10 +155,11 @@ class KnowledgeBaseService(
     fun deleteKnowledgeBase(id: Long) {
         val info = getEntityForDownload(id)
 
-        jdbcTemplate.update(
-            "DELETE FROM rag_session_knowledge_bases WHERE knowledge_base_id = ?",
-            id
+        entityManager.createNativeQuery(
+            "DELETE FROM rag_session_knowledge_bases WHERE knowledge_base_id = :kbId"
         )
+            .setParameter("kbId", id)
+            .executeUpdate()
 
         try {
             vectorService.deleteByKnowledgeBaseId(id)
@@ -170,10 +176,9 @@ class KnowledgeBaseService(
             logger.warn("删除存储文件失败: kbId={}, error={}", id, ex.message)
         }
 
-        val deleted = jdbcTemplate.update("DELETE FROM knowledge_bases WHERE id = ?", id)
-        if (deleted <= 0) {
-            throw BusinessException("知识库不存在")
-        }
+        val entity = knowledgeBaseRepository.findById(id).orElse(null)
+            ?: throw BusinessException("知识库不存在")
+        knowledgeBaseRepository.delete(entity)
     }
 
     /**
@@ -184,21 +189,27 @@ class KnowledgeBaseService(
      * @return 知识库列表
      */
     fun listKnowledgeBases(vectorStatus: VectorStatus?, sortBy: String?): List<KnowledgeBaseListItemVo> {
-        val sql = StringBuilder(
-            """
-            SELECT id, name, category, original_filename, file_size, content_type,
-                   uploaded_at, last_accessed_at, access_count, question_count,
-                   vector_status, vector_error, chunk_count
-            FROM knowledge_bases
-            """.trimIndent()
-        )
-        val params = mutableMapOf<String, Any>()
-        if (vectorStatus != null) {
-            sql.append(" WHERE vector_status = :status")
-            params["status"] = vectorStatus.name
+        val query = if (vectorStatus == null) {
+            entityManager.createQuery(
+                """
+                SELECT kb
+                FROM KnowledgeBaseEntity kb
+                ORDER BY kb.uploadedAt DESC
+                """.trimIndent(),
+                KnowledgeBaseEntity::class.java
+            )
+        } else {
+            entityManager.createQuery(
+                """
+                SELECT kb
+                FROM KnowledgeBaseEntity kb
+                WHERE kb.vectorStatus = :status
+                ORDER BY kb.uploadedAt DESC
+                """.trimIndent(),
+                KnowledgeBaseEntity::class.java
+            ).setParameter("status", vectorStatus)
         }
-        sql.append(" ORDER BY uploaded_at DESC")
-        val list = namedParameterJdbcTemplate.query(sql.toString(), params, knowledgeBaseRowMapper())
+        val list = query.resultList.map { toListItemVo(it) }
         return sortIfNeeded(list, sortBy)
     }
 
@@ -209,15 +220,8 @@ class KnowledgeBaseService(
      * @return 知识库详情
      */
     fun getKnowledgeBase(id: Long): KnowledgeBaseListItemVo? {
-        val sql = """
-            SELECT id, name, category, original_filename, file_size, content_type,
-                   uploaded_at, last_accessed_at, access_count, question_count,
-                   vector_status, vector_error, chunk_count
-            FROM knowledge_bases
-            WHERE id = ?
-        """.trimIndent()
-        val results = jdbcTemplate.query(sql, knowledgeBaseRowMapper(), id)
-        return results.firstOrNull()
+        val entity = knowledgeBaseRepository.findById(id).orElse(null) ?: return null
+        return toListItemVo(entity)
     }
 
     /**
@@ -230,11 +234,20 @@ class KnowledgeBaseService(
         if (ids.isEmpty()) {
             return emptyList()
         }
-        val sql = "SELECT id, name FROM knowledge_bases WHERE id IN (:ids)"
-        val rows = namedParameterJdbcTemplate.query(sql, mapOf("ids" to ids)) { rs, _ ->
-            rs.getLong("id") to rs.getString("name")
+        val rows = entityManager.createQuery(
+            """
+            SELECT kb.id, kb.name
+            FROM KnowledgeBaseEntity kb
+            WHERE kb.id IN :ids
+            """.trimIndent(),
+            Array<Any>::class.java
+        )
+            .setParameter("ids", ids)
+            .resultList
+        val nameMap = rows.associate { row ->
+            val columns = row as Array<*>
+            (columns[0] as Number).toLong() to (columns[1] as String)
         }
-        val nameMap = rows.associate { it.first to it.second }
         return ids.map { nameMap[it] ?: "未知知识库" }
     }
 
@@ -248,14 +261,17 @@ class KnowledgeBaseService(
         if (ids.isEmpty()) {
             return emptyList()
         }
-        val sql = """
-            SELECT id, name, category, original_filename, file_size, content_type,
-                   uploaded_at, last_accessed_at, access_count, question_count,
-                   vector_status, vector_error, chunk_count
-            FROM knowledge_bases
-            WHERE id IN (:ids)
-        """.trimIndent()
-        return namedParameterJdbcTemplate.query(sql, mapOf("ids" to ids), knowledgeBaseRowMapper())
+        val list = entityManager.createQuery(
+            """
+            SELECT kb
+            FROM KnowledgeBaseEntity kb
+            WHERE kb.id IN :ids
+            """.trimIndent(),
+            KnowledgeBaseEntity::class.java
+        )
+            .setParameter("ids", ids)
+            .resultList
+        return list.map { toListItemVo(it) }
     }
 
     /**
@@ -264,13 +280,16 @@ class KnowledgeBaseService(
      * @return 分类列表
      */
     fun getAllCategories(): List<String> {
-        val sql = """
-            SELECT DISTINCT category
-            FROM knowledge_bases
-            WHERE category IS NOT NULL
-            ORDER BY category
-        """.trimIndent()
-        return jdbcTemplate.query(sql) { rs, _ -> rs.getString("category") }
+        return entityManager.createQuery(
+            """
+            SELECT DISTINCT kb.category
+            FROM KnowledgeBaseEntity kb
+            WHERE kb.category IS NOT NULL
+            ORDER BY kb.category
+            """.trimIndent(),
+            String::class.java
+        )
+            .resultList
     }
 
     /**
@@ -280,21 +299,28 @@ class KnowledgeBaseService(
      * @return 知识库列表
      */
     fun listByCategory(category: String?): List<KnowledgeBaseListItemVo> {
-        val sql = StringBuilder(
-            """
-            SELECT id, name, category, original_filename, file_size, content_type,
-                   uploaded_at, last_accessed_at, access_count, question_count,
-                   vector_status, vector_error, chunk_count
-            FROM knowledge_bases
-            """.trimIndent()
-        )
-        if (category.isNullOrBlank()) {
-            sql.append(" WHERE category IS NULL")
-            sql.append(" ORDER BY uploaded_at DESC")
-            return jdbcTemplate.query(sql.toString(), knowledgeBaseRowMapper())
+        val query = if (category.isNullOrBlank()) {
+            entityManager.createQuery(
+                """
+                SELECT kb
+                FROM KnowledgeBaseEntity kb
+                WHERE kb.category IS NULL
+                ORDER BY kb.uploadedAt DESC
+                """.trimIndent(),
+                KnowledgeBaseEntity::class.java
+            )
+        } else {
+            entityManager.createQuery(
+                """
+                SELECT kb
+                FROM KnowledgeBaseEntity kb
+                WHERE kb.category = :category
+                ORDER BY kb.uploadedAt DESC
+                """.trimIndent(),
+                KnowledgeBaseEntity::class.java
+            ).setParameter("category", category)
         }
-        sql.append(" WHERE category = :category ORDER BY uploaded_at DESC")
-        return namedParameterJdbcTemplate.query(sql.toString(), mapOf("category" to category), knowledgeBaseRowMapper())
+        return query.resultList.map { toListItemVo(it) }
     }
 
     /**
@@ -306,14 +332,12 @@ class KnowledgeBaseService(
     @Transactional(rollbackFor = [Exception::class])
     fun updateCategory(id: Long, category: String?) {
         val resolvedCategory = category?.trim()?.takeIf { it.isNotBlank() }
-        val updated = jdbcTemplate.update(
-            "UPDATE knowledge_bases SET category = ? WHERE id = ?",
-            resolvedCategory,
-            id
-        )
-        if (updated <= 0) {
+        val entity = knowledgeBaseRepository.findById(id).orElse(null)
+        if (entity == null) {
             throw BusinessException("知识库不存在")
         }
+        entity.category = resolvedCategory // 更新分类
+        knowledgeBaseRepository.save(entity)
     }
 
     /**
@@ -327,16 +351,19 @@ class KnowledgeBaseService(
         if (trimmed.isBlank()) {
             return listKnowledgeBases(null, null)
         }
-        val sql = """
-            SELECT id, name, category, original_filename, file_size, content_type,
-                   uploaded_at, last_accessed_at, access_count, question_count,
-                   vector_status, vector_error, chunk_count
-            FROM knowledge_bases
-            WHERE LOWER(name) LIKE :kw OR LOWER(original_filename) LIKE :kw
-            ORDER BY uploaded_at DESC
-        """.trimIndent()
         val kw = "%${trimmed.lowercase()}%"
-        return namedParameterJdbcTemplate.query(sql, mapOf("kw" to kw), knowledgeBaseRowMapper())
+        val list = entityManager.createQuery(
+            """
+            SELECT kb
+            FROM KnowledgeBaseEntity kb
+            WHERE LOWER(kb.name) LIKE :kw OR LOWER(kb.originalFilename) LIKE :kw
+            ORDER BY kb.uploadedAt DESC
+            """.trimIndent(),
+            KnowledgeBaseEntity::class.java
+        )
+            .setParameter("kw", kw)
+            .resultList
+        return list.map { toListItemVo(it) }
     }
 
     /**
@@ -345,27 +372,32 @@ class KnowledgeBaseService(
      * @return 统计信息
      */
     fun getStatistics(): KnowledgeBaseStatsVo {
-        val totalCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM knowledge_bases", Long::class.java) ?: 0L
-        val totalQuestionCount =
-            jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM rag_chat_messages WHERE type = 'USER'",
-                Long::class.java
-            ) ?: 0L
-        val totalAccessCount =
-            jdbcTemplate.queryForObject(
-                "SELECT COALESCE(SUM(access_count), 0) FROM knowledge_bases",
-                Long::class.java
-            ) ?: 0L
-        val completedCount =
-            jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM knowledge_bases WHERE vector_status = 'COMPLETED'",
-                Long::class.java
-            ) ?: 0L
-        val processingCount =
-            jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM knowledge_bases WHERE vector_status = 'PROCESSING'",
-                Long::class.java
-            ) ?: 0L
+        val totalCount = (entityManager.createQuery(
+            "SELECT COUNT(kb) FROM KnowledgeBaseEntity kb",
+            Number::class.java
+        ).singleResult ?: 0L).toLong()
+        val totalQuestionCount = (entityManager.createQuery(
+            "SELECT COUNT(msg) FROM RagChatMessageEntity msg WHERE msg.type = :type",
+            Number::class.java
+        )
+            .setParameter("type", RagChatMessageEntity.MessageType.USER)
+            .singleResult ?: 0L).toLong()
+        val totalAccessCount = (entityManager.createQuery(
+            "SELECT COALESCE(SUM(kb.accessCount), 0) FROM KnowledgeBaseEntity kb",
+            Number::class.java
+        ).singleResult ?: 0L).toLong()
+        val completedCount = (entityManager.createQuery(
+            "SELECT COUNT(kb) FROM KnowledgeBaseEntity kb WHERE kb.vectorStatus = :status",
+            Number::class.java
+        )
+            .setParameter("status", VectorStatus.COMPLETED)
+            .singleResult ?: 0L).toLong()
+        val processingCount = (entityManager.createQuery(
+            "SELECT COUNT(kb) FROM KnowledgeBaseEntity kb WHERE kb.vectorStatus = :status",
+            Number::class.java
+        )
+            .setParameter("status", VectorStatus.PROCESSING)
+            .singleResult ?: 0L).toLong()
 
         return KnowledgeBaseStatsVo(
             totalCount = totalCount, // 知识库总数
@@ -403,21 +435,15 @@ class KnowledgeBaseService(
      * @return 下载信息
      */
     fun getEntityForDownload(id: Long): KnowledgeBaseDownloadVo {
-        val sql = """
-            SELECT id, original_filename, content_type, storage_key, storage_url
-            FROM knowledge_bases
-            WHERE id = ?
-        """.trimIndent()
-        val list = jdbcTemplate.query(sql, { rs, _ ->
-            KnowledgeBaseDownloadVo(
-                id = rs.getLong("id"), // 知识库ID
-                originalFilename = rs.getString("original_filename"), // 原始文件名
-                contentType = rs.getString("content_type"), // 内容类型
-                storageKey = rs.getString("storage_key"), // 存储Key
-                storageUrl = rs.getString("storage_url") // 存储URL
-            )
-        }, id)
-        return list.firstOrNull() ?: throw BusinessException("知识库不存在")
+        val entity = knowledgeBaseRepository.findById(id).orElse(null)
+            ?: throw BusinessException("知识库不存在")
+        return KnowledgeBaseDownloadVo(
+            id = entity.id, // 知识库ID
+            originalFilename = entity.originalFilename, // 原始文件名
+            contentType = entity.contentType, // 内容类型
+            storageKey = entity.storageKey, // 存储Key
+            storageUrl = entity.storageUrl // 存储URL
+        )
     }
 
     /**
@@ -436,14 +462,15 @@ class KnowledgeBaseService(
             val missing = uniqueIds.filterNot { existingIds.contains(it) }
             throw BusinessException("知识库不存在: ${missing.joinToString(",")}")
         }
-
-        val sql = """
-            UPDATE knowledge_bases
-            SET question_count = COALESCE(question_count, 0) + 1
-            WHERE id IN (:ids)
-        """.trimIndent()
-
-        namedParameterJdbcTemplate.update(sql, mapOf("ids" to uniqueIds))
+        entityManager.createQuery(
+            """
+            UPDATE KnowledgeBaseEntity kb
+            SET kb.questionCount = COALESCE(kb.questionCount, 0) + 1
+            WHERE kb.id IN :ids
+            """.trimIndent()
+        )
+            .setParameter("ids", uniqueIds)
+            .executeUpdate()
     }
 
     /**
@@ -613,25 +640,52 @@ class KnowledgeBaseService(
     @Transactional(rollbackFor = [Exception::class])
     fun updateVectorStatus(kbId: Long, status: VectorStatus, error: String?, chunkCountValue: Int?) {
         val safeError = error?.let { if (it.length > 500) it.substring(0, 500) else it }
-        val sql = StringBuilder("UPDATE knowledge_bases SET vector_status = ?, vector_error = ?")
-        val params = mutableListOf<Any?>(status.name, safeError)
         if (chunkCountValue != null) {
-            sql.append(", chunk_count = ?")
-            params.add(chunkCountValue)
+            entityManager.createQuery(
+                """
+                UPDATE KnowledgeBaseEntity kb
+                SET kb.vectorStatus = :status,
+                    kb.vectorError = :error,
+                    kb.chunkCount = :chunkCount
+                WHERE kb.id = :kbId
+                """.trimIndent()
+            )
+                .setParameter("status", status)
+                .setParameter("error", safeError)
+                .setParameter("chunkCount", chunkCountValue)
+                .setParameter("kbId", kbId)
+                .executeUpdate()
+        } else {
+            entityManager.createQuery(
+                """
+                UPDATE KnowledgeBaseEntity kb
+                SET kb.vectorStatus = :status,
+                    kb.vectorError = :error
+                WHERE kb.id = :kbId
+                """.trimIndent()
+            )
+                .setParameter("status", status)
+                .setParameter("error", safeError)
+                .setParameter("kbId", kbId)
+                .executeUpdate()
         }
-        sql.append(" WHERE id = ?")
-        params.add(kbId)
-        jdbcTemplate.update(sql.toString(), *params.toTypedArray())
     }
 
-    private fun handleDuplicateKnowledgeBase(existing: KnowledgeBaseSimple, fileHash: String): KnowledgeBaseUploadVo {
+    /**
+     * 处理重复知识库上传
+     *
+     * @param existing 已存在的知识库实体
+     * @param fileHash 文件哈希
+     * @return 上传响应
+     */
+    private fun handleDuplicateKnowledgeBase(
+        existing: KnowledgeBaseEntity,
+        fileHash: String
+    ): KnowledgeBaseUploadVo {
         val newCount = (existing.accessCount ?: 0) + 1
-        jdbcTemplate.update(
-            "UPDATE knowledge_bases SET access_count = ?, last_accessed_at = ? WHERE id = ?",
-            newCount,
-            LocalDateTime.now(),
-            existing.id
-        )
+        existing.accessCount = newCount // 更新访问次数
+        existing.lastAccessedAt = LocalDateTime.now() // 更新访问时间
+        knowledgeBaseRepository.save(existing)
 
         logger.info("检测到重复知识库: id={}, hash={}", existing.id, fileHash)
 
@@ -642,7 +696,7 @@ class KnowledgeBaseService(
                 category = existing.category ?: "", // 分类
                 fileSize = existing.fileSize, // 文件大小
                 contentLength = 0, // 重复文件不再返回内容长度
-                vectorStatus = existing.vectorStatus // 向量化状态
+                vectorStatus = existing.vectorStatus?.name // 向量化状态
             ),
             storage = KnowledgeBaseUploadStorageVo(
                 fileKey = existing.storageKey ?: "", // 存储Key
@@ -652,6 +706,17 @@ class KnowledgeBaseService(
         )
     }
 
+    /**
+     * 保存知识库基本信息
+     *
+     * @param file 上传文件
+     * @param name 知识库名称
+     * @param category 分类
+     * @param storageKey 存储Key
+     * @param storageUrl 存储URL
+     * @param fileHash 文件哈希
+     * @return 保存结果
+     */
     private fun saveKnowledgeBase(
         file: MultipartFile,
         name: String?,
@@ -663,36 +728,27 @@ class KnowledgeBaseService(
         val now = LocalDateTime.now()
         val resolvedName = if (!name.isNullOrBlank()) name.trim() else extractNameFromFilename(file.originalFilename)
         val resolvedCategory = category?.trim()?.takeIf { it.isNotBlank() }
-
-        val id = jdbcTemplate.queryForObject(
-            """
-            INSERT INTO knowledge_bases (
-                file_hash, name, category, original_filename, file_size, content_type,
-                storage_key, storage_url, uploaded_at, last_accessed_at, access_count,
-                question_count, vector_status, vector_error, chunk_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            RETURNING id
-            """.trimIndent(),
-            Long::class.java,
-            fileHash,
-            resolvedName,
-            resolvedCategory,
-            file.originalFilename ?: resolvedName,
-            file.size,
-            file.contentType,
-            storageKey,
-            storageUrl,
-            now,
-            null,
-            0,
-            0,
-            VectorStatus.PENDING.name,
-            null,
-            0
-        ) ?: throw BusinessException("保存知识库失败")
+        val entity = KnowledgeBaseEntity().apply {
+            this.fileHash = fileHash // 文件hash
+            this.name = resolvedName // 知识库名称
+            this.category = resolvedCategory // 分类
+            this.originalFilename = file.originalFilename ?: resolvedName // 原始文件名
+            this.fileSize = file.size // 文件大小
+            this.contentType = file.contentType // 文件类型
+            this.storageKey = storageKey // 存储Key
+            this.storageUrl = storageUrl // 存储URL
+            this.uploadedAt = now // 上传时间
+            this.lastAccessedAt = null // 最后访问时间
+            this.accessCount = 0 // 访问次数
+            this.questionCount = 0 // 提问次数
+            this.vectorStatus = VectorStatus.PENDING // 向量化状态
+            this.vectorError = null // 向量化错误
+            this.chunkCount = 0 // 分块数量
+        }
+        val saved = knowledgeBaseRepository.save(entity)
 
         return KnowledgeBaseSaved(
-            id = id, // 知识库ID
+            id = saved.id, // 知识库ID
             name = resolvedName, // 知识库名称
             category = resolvedCategory, // 分类
             fileSize = file.size, // 文件大小
@@ -701,34 +757,44 @@ class KnowledgeBaseService(
         )
     }
 
-    private fun findByFileHash(fileHash: String): KnowledgeBaseSimple? {
-        val sql = """
-            SELECT id, name, category, file_size, storage_key, storage_url, access_count, vector_status
-            FROM knowledge_bases
-            WHERE file_hash = ?
-        """.trimIndent()
-        val results = jdbcTemplate.query(sql, { rs, _ ->
-            KnowledgeBaseSimple(
-                id = rs.getLong("id"), // 知识库ID
-                name = rs.getString("name"), // 知识库名称
-                category = rs.getString("category"), // 分类
-                fileSize = rs.getObject("file_size") as Long?, // 文件大小
-                storageKey = rs.getString("storage_key"), // 存储Key
-                storageUrl = rs.getString("storage_url"), // 存储URL
-                accessCount = rs.getObject("access_count") as Int?, // 访问次数
-                vectorStatus = rs.getString("vector_status") // 向量化状态
-            )
-        }, fileHash)
-        return results.firstOrNull()
+    /**
+     * 根据文件哈希查询知识库
+     *
+     * @param fileHash 文件哈希
+     * @return 知识库实体
+     */
+    private fun findByFileHash(fileHash: String): KnowledgeBaseEntity? {
+        return entityManager.createQuery(
+            """
+            SELECT kb
+            FROM KnowledgeBaseEntity kb
+            WHERE kb.fileHash = :fileHash
+            """.trimIndent(),
+            KnowledgeBaseEntity::class.java
+        )
+            .setParameter("fileHash", fileHash)
+            .setMaxResults(1)
+            .resultList
+            .firstOrNull()
     }
 
+    /**
+     * 查询存在的知识库ID集合
+     *
+     * @param ids 待校验的知识库ID列表
+     * @return 已存在的ID集合
+     */
     private fun queryExistingIds(ids: List<Long>): Set<Long> {
         if (ids.isEmpty()) {
             return emptySet()
         }
-        val sql = "SELECT id FROM knowledge_bases WHERE id IN (:ids)"
-        val results = namedParameterJdbcTemplate.queryForList(sql, mapOf("ids" to ids), Long::class.java)
-        return results.toSet()
+        val results = entityManager.createQuery(
+            "SELECT kb.id FROM KnowledgeBaseEntity kb WHERE kb.id IN :ids",
+            java.lang.Long::class.java
+        )
+            .setParameter("ids", ids)
+            .resultList
+        return results.map { it.toLong() }.toSet()
     }
 
     private fun buildQueryContext(question: String): QueryContext {
@@ -973,21 +1039,27 @@ class KnowledgeBaseService(
         }
     }
 
-    private fun knowledgeBaseRowMapper() = org.springframework.jdbc.core.RowMapper { rs, _ ->
-        KnowledgeBaseListItemVo(
-            id = rs.getLong("id"), // 知识库ID
-            name = rs.getString("name"), // 知识库名称
-            category = rs.getString("category"), // 分类
-            originalFilename = rs.getString("original_filename"), // 原始文件名
-            fileSize = rs.getObject("file_size") as Long?, // 文件大小
-            contentType = rs.getString("content_type"), // 内容类型
-            uploadedAt = rs.getTimestamp("uploaded_at")?.toLocalDateTime(), // 上传时间
-            lastAccessedAt = rs.getTimestamp("last_accessed_at")?.toLocalDateTime(), // 最后访问时间
-            accessCount = rs.getObject("access_count") as Int?, // 访问次数
-            questionCount = rs.getObject("question_count") as Int?, // 提问次数
-            vectorStatus = rs.getString("vector_status")?.let { VectorStatus.valueOf(it) }, // 向量化状态
-            vectorError = rs.getString("vector_error"), // 向量化错误
-            chunkCount = rs.getObject("chunk_count") as Int? // 分块数量
+    /**
+     * 将实体转换为列表展示数据
+     *
+     * @param entity 知识库实体
+     * @return 列表展示数据
+     */
+    private fun toListItemVo(entity: KnowledgeBaseEntity): KnowledgeBaseListItemVo {
+        return KnowledgeBaseListItemVo(
+            id = entity.id, // 知识库ID
+            name = entity.name, // 知识库名称
+            category = entity.category, // 分类
+            originalFilename = entity.originalFilename, // 原始文件名
+            fileSize = entity.fileSize, // 文件大小
+            contentType = entity.contentType, // 内容类型
+            uploadedAt = entity.uploadedAt, // 上传时间
+            lastAccessedAt = entity.lastAccessedAt, // 最后访问时间
+            accessCount = entity.accessCount, // 访问次数
+            questionCount = entity.questionCount, // 提问次数
+            vectorStatus = entity.vectorStatus, // 向量化状态
+            vectorError = entity.vectorError, // 向量化错误
+            chunkCount = entity.chunkCount // 分块数量
         )
     }
 
@@ -1030,17 +1102,6 @@ class KnowledgeBaseService(
         val contentType: String?, // 内容类型
         val storageKey: String?, // 存储Key
         val storageUrl: String? // 存储URL
-    )
-
-    private data class KnowledgeBaseSimple(
-        val id: Long, // 知识库ID
-        val name: String, // 知识库名称
-        val category: String?, // 分类
-        val fileSize: Long?, // 文件大小
-        val storageKey: String?, // 存储Key
-        val storageUrl: String?, // 存储URL
-        val accessCount: Int?, // 访问次数
-        val vectorStatus: String? // 向量化状态
     )
 
     private data class KnowledgeBaseSaved(

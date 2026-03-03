@@ -1,18 +1,20 @@
 package com.example.framework.core.jackson
 
 import cn.hutool.core.date.DatePattern
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer
+import com.fasterxml.jackson.databind.module.SimpleModule
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.datatype.jsr310.deser.LocalDateDeserializer
 import com.fasterxml.jackson.datatype.jsr310.deser.LocalDateTimeDeserializer
 import com.fasterxml.jackson.datatype.jsr310.deser.LocalTimeDeserializer
 import com.fasterxml.jackson.datatype.jsr310.ser.LocalDateSerializer
 import com.fasterxml.jackson.datatype.jsr310.ser.LocalDateTimeSerializer
 import com.fasterxml.jackson.datatype.jsr310.ser.LocalTimeSerializer
-import org.springframework.boot.autoconfigure.jackson.Jackson2ObjectMapperBuilderCustomizer
+import com.fasterxml.jackson.module.kotlin.KotlinModule
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.time.LocalDate
@@ -29,30 +31,35 @@ class JacksonConfiguration {
     /**
      * 全局Jackson序列化配置
      */
-    @Bean("jackson2ObjectMapperBuilderCustomizer")
-    fun jackson2ObjectMapperBuilderCustomizer(): Jackson2ObjectMapperBuilderCustomizer {
-        return Jackson2ObjectMapperBuilderCustomizer { builder: Jackson2ObjectMapperBuilder ->
-            // 序列化
-            builder.serializerByType(
-                LocalDateTime::class.java,
-                LocalDateTimeSerializer(DatePattern.NORM_DATETIME_FORMATTER)
-            )
-            builder.serializerByType(LocalTime::class.java, LocalTimeSerializer(DatePattern.NORM_TIME_FORMATTER))
-            builder.serializerByType(LocalDate::class.java, LocalDateSerializer(DatePattern.NORM_DATE_FORMATTER))
-            builder.serializerByType(Long::class.java, ToStringSerializer.instance)
-            builder.serializerByType(Long::class.javaObjectType, ToStringSerializer.instance)
-            builder.serializerByType(BigDecimal::class.java, ToStringSerializer.instance)
-            builder.serializerByType(BigInteger::class.java, ToStringSerializer.instance)
-            // 反序列化
-            builder.deserializerByType(
-                LocalDateTime::class.java,
-                LocalDateTimeDeserializer(DatePattern.NORM_DATETIME_FORMATTER)
-            )
-            builder.deserializerByType(LocalTime::class.java, LocalTimeDeserializer(DatePattern.NORM_TIME_FORMATTER))
-            builder.deserializerByType(LocalDate::class.java, LocalDateDeserializer(DatePattern.NORM_DATE_FORMATTER))
+    @Bean
+    fun objectMapper(): ObjectMapper {
+        val mapper = ObjectMapper()
+        mapper.registerModule(KotlinModule.Builder().build()) // Kotlin 类型支持
+        mapper.findAndRegisterModules() // 注册默认模块（含 JSR310）
 
-            // 配置枚举使用toString方式
-            builder.featuresToEnable(SerializationFeature.WRITE_ENUMS_USING_TO_STRING)
-        }
+        val timeModule = JavaTimeModule()
+        timeModule.addSerializer(
+            LocalDateTime::class.java,
+            LocalDateTimeSerializer(DatePattern.NORM_DATETIME_FORMATTER)
+        )
+        timeModule.addSerializer(LocalTime::class.java, LocalTimeSerializer(DatePattern.NORM_TIME_FORMATTER))
+        timeModule.addSerializer(LocalDate::class.java, LocalDateSerializer(DatePattern.NORM_DATE_FORMATTER))
+        timeModule.addDeserializer(
+            LocalDateTime::class.java,
+            LocalDateTimeDeserializer(DatePattern.NORM_DATETIME_FORMATTER)
+        )
+        timeModule.addDeserializer(LocalTime::class.java, LocalTimeDeserializer(DatePattern.NORM_TIME_FORMATTER))
+        timeModule.addDeserializer(LocalDate::class.java, LocalDateDeserializer(DatePattern.NORM_DATE_FORMATTER))
+
+        val numberModule = SimpleModule()
+        numberModule.addSerializer(Long::class.javaObjectType, ToStringSerializer.instance)
+        numberModule.addSerializer(java.lang.Long.TYPE, ToStringSerializer.instance)
+        numberModule.addSerializer(BigDecimal::class.java, ToStringSerializer.instance)
+        numberModule.addSerializer(BigInteger::class.java, ToStringSerializer.instance)
+
+        mapper.registerModule(timeModule) // 自定义时间序列化
+        mapper.registerModule(numberModule) // 数值序列化为字符串
+        mapper.enable(SerializationFeature.WRITE_ENUMS_USING_TO_STRING) // 枚举序列化使用 toString
+        return mapper
     }
 }

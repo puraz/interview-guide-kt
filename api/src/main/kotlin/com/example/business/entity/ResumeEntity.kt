@@ -1,12 +1,14 @@
 package com.example.business.entity
 
 import com.example.business.enums.AsyncTaskStatus
-import org.babyfish.jimmer.sql.Column
-import org.babyfish.jimmer.sql.Entity
-import org.babyfish.jimmer.sql.GeneratedValue
-import org.babyfish.jimmer.sql.GenerationType
-import org.babyfish.jimmer.sql.Id
-import org.babyfish.jimmer.sql.Table
+import jakarta.persistence.Column
+import jakarta.persistence.Entity
+import jakarta.persistence.EnumType
+import jakarta.persistence.Enumerated
+import jakarta.persistence.GeneratedValue
+import jakarta.persistence.GenerationType
+import jakarta.persistence.Id
+import jakarta.persistence.Table
 import java.time.LocalDateTime
 
 /**
@@ -14,84 +16,85 @@ import java.time.LocalDateTime
  */
 @Entity
 @Table(name = "resumes")
-interface ResumeEntity {
+open class ResumeEntity {
 
     /**
      * 主键ID
      */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    val id: Long
+    open var id: Long = 0L
 
     /**
      * 文件内容SHA-256哈希值，用于去重
      */
-    @Column(name = "file_hash")
-    val fileHash: String
+    @Column(name = "file_hash", nullable = false, length = 64)
+    open lateinit var fileHash: String
 
     /**
      * 原始文件名
      */
-    @Column(name = "original_filename")
-    val originalFilename: String
+    @Column(name = "original_filename", nullable = false)
+    open lateinit var originalFilename: String
 
     /**
      * 文件大小(字节)
      */
     @Column(name = "file_size")
-    val fileSize: Long?
+    open var fileSize: Long? = null
 
     /**
      * 文件类型
      */
     @Column(name = "content_type")
-    val contentType: String?
+    open var contentType: String? = null
 
     /**
      * RustFS存储的文件Key
      */
     @Column(name = "storage_key")
-    val storageKey: String?
+    open var storageKey: String? = null
 
     /**
      * RustFS存储的文件URL
      */
     @Column(name = "storage_url")
-    val storageUrl: String?
+    open var storageUrl: String? = null
 
     /**
      * 解析后的简历文本
      */
-    @Column(name = "resume_text", sqlType = "TEXT")
-    val resumeText: String?
+    @Column(name = "resume_text", columnDefinition = "TEXT")
+    open var resumeText: String? = null
 
     /**
      * 上传时间
      */
-    @Column(name = "uploaded_at")
-    val uploadedAt: LocalDateTime
+    @Column(name = "uploaded_at", nullable = false)
+    open lateinit var uploadedAt: LocalDateTime
 
     /**
      * 最后访问时间
      */
     @Column(name = "last_accessed_at")
-    val lastAccessedAt: LocalDateTime?
+    open var lastAccessedAt: LocalDateTime? = null
 
     /**
      * 访问次数
      */
     @Column(name = "access_count")
-    val accessCount: Int?
+    open var accessCount: Int? = null
 
     /**
      * 分析状态(异步分析)
      */
+    @Enumerated(EnumType.STRING)
     @Column(name = "analyze_status")
-    val analyzeStatus: AsyncTaskStatus?
+    open var analyzeStatus: AsyncTaskStatus? = null
 
     /**
      * 分析错误信息
      */
     @Column(name = "analyze_error")
-    val analyzeError: String?
+    open var analyzeError: String? = null
 }

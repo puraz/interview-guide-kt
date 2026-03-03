@@ -1,17 +1,14 @@
 plugins {
     kotlin("jvm")
     kotlin("plugin.spring")
+    kotlin("plugin.jpa")
     id("org.springframework.boot")
     id("io.spring.dependency-management")
-    // 添加ksp插件
-    id("com.google.devtools.ksp") version "2.1.20-2.0.0"
-    id("org.jetbrains.kotlin.plugin.noarg") version "2.1.20"
 }
 
 group = "com.example"
 version = "1.1.12"
-description = "使用kotlin语言基于spring boot、jimmer、sa-token等框架开发的项目脚手架。"
-val jimmerVersion = "0.9.120"
+description = "使用kotlin语言基于spring boot、spring data jpa、sa-token等框架开发的项目脚手架。"
 val wxJavaSdkVersion = "4.7.7.B"
 val langchain4jVersion = "1.10.0" // LangChain4j 版本：用于统一大模型调用抽象与 OpenAI 兼容适配 // DeepSeek/Qwen/OpenAI 可复用
 
@@ -34,11 +31,6 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
     }
 }
 
-noArg {
-    annotation("com.example.framework.base.NoArg")
-    invokeInitializers = true
-}
-
 java {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
@@ -53,7 +45,6 @@ kotlin {
     sourceSets {
         main {
             // kotlin.srcDir("src/main/kotlin")
-            kotlin.srcDir("build/generated/ksp/main")
         }
         test {
             kotlin.srcDir("src/test/kotlin")
@@ -63,24 +54,23 @@ kotlin {
 
 dependencyManagement {
     imports {
-        mavenBom("org.springframework.boot:spring-boot-dependencies:3.2.12")
+        mavenBom("org.springframework.boot:spring-boot-dependencies:4.0.0")
         mavenBom("cn.dev33:sa-token-bom:1.44.0")
         mavenBom("cn.hutool:hutool-bom:5.8.43")
     }
 }
 
 dependencies {
+    implementation(platform("org.springframework.boot:spring-boot-dependencies:4.0.0"))
+
     // Spring Boot 相关
-    implementation("org.springframework.boot:spring-boot-starter-web") {
-        exclude(group = "org.springframework.boot", module = "spring-boot-starter-tomcat")
-    }
-    implementation("org.springframework.boot:spring-boot-starter-undertow")
+    implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-aop")
     implementation("org.springframework.boot:spring-boot-starter-cache")
     implementation("org.springframework.boot:spring-boot-starter-websocket")
     implementation("org.springframework.boot:spring-boot-starter-webflux")
-    implementation("org.springframework.boot:spring-boot-starter-jdbc")
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 
@@ -98,10 +88,8 @@ dependencies {
     runtimeOnly("org.postgresql:postgresql:42.7.1")
     implementation("com.alibaba:druid-spring-boot-starter:1.2.27")
 
-    // jimmer 相关
-    implementation("org.babyfish.jimmer:jimmer-spring-boot-starter:${jimmerVersion}")
-    ksp("org.babyfish.jimmer:jimmer-ksp:${jimmerVersion}")
-    // runtimeOnly("org.babyfish.jimmer:jimmer-client-swagger:${jimmerVersion}")
+    // Hibernate Vector（pgvector）
+    implementation("org.hibernate.orm:hibernate-vector")
 
     // Security 相关
     implementation("cn.dev33:sa-token-spring-boot3-starter")
@@ -112,6 +100,7 @@ dependencies {
 
     // JSON 相关
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
     implementation("com.fasterxml.jackson.core:jackson-databind")
 
@@ -170,11 +159,6 @@ sourceSets {
             srcDir("src/main/resources")
         }
     }
-}
-
-// KSP 参数配置
-ksp {
-    arg("jimmer.dto.mutable", "true")
 }
 
 // 添加Kotlin源码目录中的XML文件到资源

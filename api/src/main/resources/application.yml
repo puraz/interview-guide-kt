@@ -209,7 +209,7 @@ spring:
         wall:
           enabled: true # 启用 WallFilter // 用于 SQL 注入防护
           config:
-            comment-allow: true # 允许 SQL 注释 // 兼容 Jimmer 自动生成的优化注释（如 reverse sorting optimization），避免被 Druid 误判为注入
+            comment-allow: true # 允许 SQL 注释 // 兼容 ORM 生成的优化注释，避免被 Druid 误判为注入
       validation-query: SELECT 'x'
       aop-patterns: com.xwkj.*.*.service.*
       stat-view-servlet:
@@ -218,6 +218,15 @@ spring:
         login-username: admin
         login-password: admin
         enabled: true
+  # JPA 配置
+  jpa:
+    hibernate:
+      ddl-auto: none # 保持数据库结构由 SQL 管理
+    open-in-view: false # 关闭 Open Session In View，避免懒加载穿透到 Controller
+    show-sql: true # 输出 SQL 便于排查
+    properties:
+      hibernate:
+        format_sql: true # SQL 格式化输出
   # 设置上传文件大小
   servlet:
     multipart:
@@ -258,29 +267,3 @@ sa-token:
   token-prefix:
   # 自定义token样式
   token-style: tik
-
-jimmer:
-  # This is very important,
-  # With this configuration,
-  # `jimmer-spring-starter` will create `KSqlClient` for kotlin;
-  # otherwise, it will create `JSqlClient` for java.
-  language: kotlin
-
-  database-validation-mode: ERROR
-  show-sql: true
-  pretty-sql: true
-  inline-sql-variables: true
-  executor-context-prefixes:
-    com.example.business
-  client:
-    ts:
-      path: /ts.zip
-    openapi:
-      path: /openapi.yml
-      ui-path: /openapi.html
-      properties:
-        info:
-          title: Jimmer Demo
-          description: This is the OpenAPI UI of Jimmer Demo
-          version: 0.9.55
-  dialect: org.babyfish.jimmer.sql.dialect.PostgresDialect

@@ -1,12 +1,15 @@
 package com.example.business.service
 
+import com.example.business.entity.KnowledgeBaseEntity
 import com.example.business.entity.RagChatMessageEntity
+import com.example.business.entity.RagChatSessionEntity
+import com.example.business.repository.RagChatMessageRepository
+import com.example.business.repository.RagChatSessionRepository
 import com.example.framework.core.exception.BusinessException
+import jakarta.persistence.EntityManager
+import jakarta.persistence.PersistenceContext
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotEmpty
-import org.slf4j.LoggerFactory
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import reactor.core.publisher.Flux
@@ -19,11 +22,12 @@ import java.time.LocalDateTime
  */
 @Service
 class RagChatSessionService(
-    private val jdbcTemplate: JdbcTemplate,
-    private val namedParameterJdbcTemplate: NamedParameterJdbcTemplate,
+    private val sessionRepository: RagChatSessionRepository,
+    private val messageRepository: RagChatMessageRepository,
     private val knowledgeBaseService: KnowledgeBaseService
 ) {
-    private val logger = LoggerFactory.getLogger(RagChatSessionService::class.java)
+    @PersistenceContext
+    private lateinit var entityManager: EntityManager
 
     /**
      * 创建会话
@@ -36,7 +40,7 @@ class RagChatSessionService(
         if (param.knowledgeBaseIds.isEmpty()) {
             throw BusinessException("至少选择一个知识库")
         }
-        val kbList = knowledgeBaseService.listByIds(param.knowledgeBaseIds)
+        val kbList = loadKnowledgeBases(param.knowledgeBaseIds)
         if (kbList.size != param.knowledgeBaseIds.size) {
             throw BusinessException("部分知识库不存在")
         }
@@ -48,25 +52,19 @@ class RagChatSessionService(
         }
 
         val now = LocalDateTime.now()
-        val sessionId = jdbcTemplate.queryForObject(
-            """
-            INSERT INTO rag_chat_sessions (title, status, created_at, updated_at, message_count, is_pinned)
-            VALUES (?, ?, ?, ?, ?, ?)
-            RETURNING id
-            """.trimIndent(),
-            Long::class.java,
-            title,
-            "ACTIVE",
-            now,
-            now,
-            0,
-            false
-        ) ?: throw BusinessException("创建会话失败")
-
-        batchInsertSessionKnowledgeBases(sessionId, param.knowledgeBaseIds)
+        val session = RagChatSessionEntity().apply {
+            this.title = title // 会话标题
+            this.status = RagChatSessionEntity.SessionStatus.ACTIVE // 会话状态
+            this.createdAt = now // 创建时间
+            this.updatedAt = now // 更新时间
+            this.messageCount = 0 // 消息数量
+            this.isPinned = false // 是否置顶
+            this.knowledgeBases = kbList.toMutableList() // 关联知识库
+        }
+        val saved = sessionRepository.save(session)
 
         return SessionVo(
-            id = sessionId, // 会话ID
+            id = saved.id, // 会话ID
             title = title, // 会话标题
             knowledgeBaseIds = param.knowledgeBaseIds, // 知识库ID列表
             createdAt = now // 创建时间
@@ -79,22 +77,18 @@ class RagChatSessionService(
      * @return 会话列表
      */
     fun listSessions(): List<SessionListItemVo> {
-        val sessions = jdbcTemplate.query(
+        val sessions = entityManager.createQuery(
             """
-            SELECT id, title, message_count, updated_at, created_at, is_pinned
-            FROM rag_chat_sessions
-            ORDER BY is_pinned DESC, updated_at DESC NULLS LAST, created_at DESC
-            """.trimIndent()
-        ) { rs, _ ->
-            SessionBase(
-                id = rs.getLong("id"), // 会话ID
-                title = rs.getString("title"), // 标题
-                messageCount = rs.getObject("message_count") as Int?, // 消息数量
-                updatedAt = rs.getTimestamp("updated_at")?.toLocalDateTime(), // 更新时间
-                createdAt = rs.getTimestamp("created_at")?.toLocalDateTime(), // 创建时间
-                isPinned = rs.getObject("is_pinned") as Boolean? // 是否置顶
-            )
-        }
+            SELECT s
+            FROM RagChatSessionEntity s
+            ORDER BY s.isPinned DESC,
+                     CASE WHEN s.updatedAt IS NULL THEN 1 ELSE 0 END,
+                     s.updatedAt DESC,
+                     s.createdAt DESC
+            """.trimIndent(),
+            RagChatSessionEntity::class.java
+        )
+            .resultList
         if (sessions.isEmpty()) {
             return emptyList()
         }
@@ -142,48 +136,37 @@ class RagChatSessionService(
      */
     @Transactional(rollbackFor = [Exception::class])
     fun prepareStreamMessage(sessionId: Long, question: String): Long {
-        val session = findSessionBase(sessionId)
+        val session = findSessionEntity(sessionId)
         val nextOrder = session.messageCount ?: 0
         val now = LocalDateTime.now()
 
-        jdbcTemplate.update(
-            """
-            INSERT INTO rag_chat_messages (session_id, type, content, message_order, created_at, updated_at, completed)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """.trimIndent(),
-            sessionId,
-            RagChatMessageEntity.MessageType.USER.name,
-            question,
-            nextOrder,
-            now,
-            now,
-            true
-        )
+        val userMessage = RagChatMessageEntity().apply {
+            this.session = session // 关联会话
+            this.type = RagChatMessageEntity.MessageType.USER // 消息类型
+            this.content = question // 用户问题
+            this.messageOrder = nextOrder // 消息顺序
+            this.createdAt = now // 创建时间
+            this.updatedAt = now // 更新时间
+            this.completed = true // 用户消息默认完成
+        }
+        messageRepository.save(userMessage)
 
-        val assistantMessageId = jdbcTemplate.queryForObject(
-            """
-            INSERT INTO rag_chat_messages (session_id, type, content, message_order, created_at, updated_at, completed)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            RETURNING id
-            """.trimIndent(),
-            Long::class.java,
-            sessionId,
-            RagChatMessageEntity.MessageType.ASSISTANT.name,
-            "",
-            nextOrder + 1,
-            now,
-            now,
-            false
-        ) ?: throw BusinessException("创建AI消息失败")
+        val assistantMessage = RagChatMessageEntity().apply {
+            this.session = session // 关联会话
+            this.type = RagChatMessageEntity.MessageType.ASSISTANT // 消息类型
+            this.content = "" // AI消息初始为空
+            this.messageOrder = nextOrder + 1 // 消息顺序
+            this.createdAt = now // 创建时间
+            this.updatedAt = now // 更新时间
+            this.completed = false // AI消息未完成
+        }
+        val savedAssistant = messageRepository.save(assistantMessage)
 
-        jdbcTemplate.update(
-            "UPDATE rag_chat_sessions SET message_count = ?, updated_at = ? WHERE id = ?",
-            nextOrder + 2,
-            now,
-            sessionId
-        )
+        session.messageCount = nextOrder + 2 // 更新消息数量
+        session.updatedAt = now // 更新会话更新时间
+        sessionRepository.save(session)
 
-        return assistantMessageId
+        return savedAssistant.id
     }
 
     /**
@@ -194,16 +177,12 @@ class RagChatSessionService(
      */
     @Transactional(rollbackFor = [Exception::class])
     fun completeStreamMessage(messageId: Long, content: String) {
-        val updated = jdbcTemplate.update(
-            "UPDATE rag_chat_messages SET content = ?, completed = ?, updated_at = ? WHERE id = ?",
-            content,
-            true,
-            LocalDateTime.now(),
-            messageId
-        )
-        if (updated <= 0) {
-            throw BusinessException("消息不存在")
-        }
+        val message = messageRepository.findById(messageId).orElse(null)
+            ?: throw BusinessException("消息不存在")
+        message.content = content // 更新消息内容
+        message.completed = true // 标记完成
+        message.updatedAt = LocalDateTime.now() // 更新时间
+        messageRepository.save(message)
     }
 
     /**
@@ -226,16 +205,10 @@ class RagChatSessionService(
      */
     @Transactional(rollbackFor = [Exception::class])
     fun updateSessionTitle(sessionId: Long, title: String) {
-        val resolvedTitle = title.trim()
-        val updated = jdbcTemplate.update(
-            "UPDATE rag_chat_sessions SET title = ?, updated_at = ? WHERE id = ?",
-            resolvedTitle,
-            LocalDateTime.now(),
-            sessionId
-        )
-        if (updated <= 0) {
-            throw BusinessException("会话不存在")
-        }
+        val session = findSessionEntity(sessionId)
+        session.title = title.trim() // 更新标题
+        session.updatedAt = LocalDateTime.now() // 更新时间
+        sessionRepository.save(session)
     }
 
     /**
@@ -245,19 +218,11 @@ class RagChatSessionService(
      */
     @Transactional(rollbackFor = [Exception::class])
     fun togglePin(sessionId: Long) {
-        val current = jdbcTemplate.query(
-            "SELECT is_pinned FROM rag_chat_sessions WHERE id = ?",
-            { rs, _ -> rs.getObject("is_pinned") as Boolean? },
-            sessionId
-        ).firstOrNull() ?: throw BusinessException("会话不存在")
-
-        val next = !(current ?: false)
-        jdbcTemplate.update(
-            "UPDATE rag_chat_sessions SET is_pinned = ?, updated_at = ? WHERE id = ?",
-            next,
-            LocalDateTime.now(),
-            sessionId
-        )
+        val session = findSessionEntity(sessionId)
+        val next = !(session.isPinned ?: false)
+        session.isPinned = next // 切换置顶状态
+        session.updatedAt = LocalDateTime.now() // 更新时间
+        sessionRepository.save(session)
     }
 
     /**
@@ -271,18 +236,14 @@ class RagChatSessionService(
         if (knowledgeBaseIds.isEmpty()) {
             throw BusinessException("至少选择一个知识库")
         }
-        ensureSessionExists(sessionId)
-        val kbList = knowledgeBaseService.listByIds(knowledgeBaseIds)
+        val session = findSessionEntity(sessionId)
+        val kbList = loadKnowledgeBases(knowledgeBaseIds)
         if (kbList.size != knowledgeBaseIds.size) {
             throw BusinessException("部分知识库不存在")
         }
-        jdbcTemplate.update("DELETE FROM rag_session_knowledge_bases WHERE session_id = ?", sessionId)
-        batchInsertSessionKnowledgeBases(sessionId, knowledgeBaseIds)
-        jdbcTemplate.update(
-            "UPDATE rag_chat_sessions SET updated_at = ? WHERE id = ?",
-            LocalDateTime.now(),
-            sessionId
-        )
+        session.knowledgeBases = kbList.toMutableList() // 更新关联知识库
+        session.updatedAt = LocalDateTime.now() // 更新时间
+        sessionRepository.save(session)
     }
 
     /**
@@ -293,102 +254,164 @@ class RagChatSessionService(
     @Transactional(rollbackFor = [Exception::class])
     fun deleteSession(sessionId: Long) {
         ensureSessionExists(sessionId)
-        jdbcTemplate.update("DELETE FROM rag_chat_messages WHERE session_id = ?", sessionId)
-        jdbcTemplate.update("DELETE FROM rag_session_knowledge_bases WHERE session_id = ?", sessionId)
-        jdbcTemplate.update("DELETE FROM rag_chat_sessions WHERE id = ?", sessionId)
+        entityManager.createQuery("DELETE FROM RagChatMessageEntity m WHERE m.session.id = :sessionId")
+            .setParameter("sessionId", sessionId)
+            .executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM rag_session_knowledge_bases WHERE session_id = :sessionId")
+            .setParameter("sessionId", sessionId)
+            .executeUpdate()
+        sessionRepository.deleteById(sessionId)
     }
 
+    /**
+     * 获取会话基础信息
+     *
+     * @param sessionId 会话ID
+     * @return 会话基础信息
+     */
     private fun findSessionBase(sessionId: Long): SessionBase {
-        return jdbcTemplate.query(
-            """
-            SELECT id, title, message_count, updated_at, created_at, is_pinned
-            FROM rag_chat_sessions
-            WHERE id = ?
-            """.trimIndent(),
-            { rs, _ ->
-                SessionBase(
-                    id = rs.getLong("id"), // 会话ID
-                    title = rs.getString("title"), // 标题
-                    messageCount = rs.getObject("message_count") as Int?, // 消息数量
-                    updatedAt = rs.getTimestamp("updated_at")?.toLocalDateTime(), // 更新时间
-                    createdAt = rs.getTimestamp("created_at")?.toLocalDateTime(), // 创建时间
-                    isPinned = rs.getObject("is_pinned") as Boolean? // 是否置顶
-                )
-            },
-            sessionId
-        ).firstOrNull() ?: throw BusinessException("会话不存在")
+        val session = findSessionEntity(sessionId)
+        return SessionBase(
+            id = session.id, // 会话ID
+            title = session.title, // 标题
+            messageCount = session.messageCount, // 消息数量
+            updatedAt = session.updatedAt, // 更新时间
+            createdAt = session.createdAt, // 创建时间
+            isPinned = session.isPinned // 是否置顶
+        )
     }
 
+    /**
+     * 加载会话实体
+     *
+     * @param sessionId 会话ID
+     * @return 会话实体
+     */
+    private fun findSessionEntity(sessionId: Long): RagChatSessionEntity {
+        return sessionRepository.findById(sessionId).orElse(null) ?: throw BusinessException("会话不存在")
+    }
+
+    /**
+     * 校验会话是否存在
+     *
+     * @param sessionId 会话ID
+     */
     private fun ensureSessionExists(sessionId: Long) {
-        val exists = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM rag_chat_sessions WHERE id = ?",
-            Long::class.java,
-            sessionId
-        ) ?: 0L
-        if (exists <= 0L) {
+        val exists = sessionRepository.existsById(sessionId)
+        if (!exists) {
             throw BusinessException("会话不存在")
         }
     }
 
+    /**
+     * 查询会话关联的知识库ID列表
+     *
+     * @param sessionId 会话ID
+     * @return 知识库ID列表
+     */
     private fun loadSessionKnowledgeBaseIds(sessionId: Long): List<Long> {
-        return jdbcTemplate.query(
-            "SELECT knowledge_base_id FROM rag_session_knowledge_bases WHERE session_id = ?",
-            { rs, _ -> rs.getLong("knowledge_base_id") },
-            sessionId
+        return entityManager.createQuery(
+            """
+            SELECT kb.id
+            FROM RagChatSessionEntity s
+            JOIN s.knowledgeBases kb
+            WHERE s.id = :sessionId
+            """.trimIndent(),
+            java.lang.Long::class.java
         )
+            .setParameter("sessionId", sessionId)
+            .resultList
+            .map { it.toLong() }
     }
 
+    /**
+     * 批量查询会话关联的知识库名称
+     *
+     * @param sessionIds 会话ID列表
+     * @return 会话ID到知识库名称列表的映射
+     */
     private fun loadSessionKnowledgeBaseNames(sessionIds: List<Long>): Map<Long, List<String>> {
         if (sessionIds.isEmpty()) {
             return emptyMap()
         }
-        val sql = """
-            SELECT rsk.session_id, kb.name
-            FROM rag_session_knowledge_bases rsk
-            JOIN knowledge_bases kb ON rsk.knowledge_base_id = kb.id
-            WHERE rsk.session_id IN (:sessionIds)
-        """.trimIndent()
-        val rows = namedParameterJdbcTemplate.query(sql, mapOf("sessionIds" to sessionIds)) { rs, _ ->
-            rs.getLong("session_id") to rs.getString("name")
-        }
+        val rows = entityManager.createQuery(
+            """
+            SELECT s.id, kb.name
+            FROM RagChatSessionEntity s
+            JOIN s.knowledgeBases kb
+            WHERE s.id IN :sessionIds
+            """.trimIndent(),
+            Array<Any>::class.java
+        )
+            .setParameter("sessionIds", sessionIds)
+            .resultList
         val map = mutableMapOf<Long, MutableList<String>>()
         for (row in rows) {
-            val list = map.getOrPut(row.first) { mutableListOf() }
-            list.add(row.second)
+            val columns = row as Array<*>
+            val sessionId = (columns[0] as Number).toLong()
+            val name = columns[1] as String
+            val list = map.getOrPut(sessionId) { mutableListOf() }
+            list.add(name)
         }
         return map
     }
 
+    /**
+     * 查询会话消息列表
+     *
+     * @param sessionId 会话ID
+     * @return 消息列表
+     */
     private fun loadMessages(sessionId: Long): List<MessageVo> {
-        return jdbcTemplate.query(
+        val messages = entityManager.createQuery(
             """
-            SELECT id, type, content, created_at
-            FROM rag_chat_messages
-            WHERE session_id = ?
-            ORDER BY message_order ASC
+            SELECT m
+            FROM RagChatMessageEntity m
+            WHERE m.session.id = :sessionId
+            ORDER BY m.messageOrder ASC
             """.trimIndent(),
-            { rs, _ ->
-                MessageVo(
-                    id = rs.getLong("id"), // 消息ID
-                    type = rs.getString("type").lowercase(), // 消息类型
-                    content = rs.getString("content"), // 消息内容
-                    createdAt = rs.getTimestamp("created_at")?.toLocalDateTime() // 创建时间
-                )
-            },
-            sessionId
+            RagChatMessageEntity::class.java
         )
-    }
-
-    private fun batchInsertSessionKnowledgeBases(sessionId: Long, knowledgeBaseIds: List<Long>) {
-        if (knowledgeBaseIds.isEmpty()) {
-            return
+            .setParameter("sessionId", sessionId)
+            .resultList
+        return messages.map { message ->
+            MessageVo(
+                id = message.id, // 消息ID
+                type = message.type.name.lowercase(), // 消息类型
+                content = message.content, // 消息内容
+                createdAt = message.createdAt // 创建时间
+            )
         }
-        jdbcTemplate.batchUpdate(
-            "INSERT INTO rag_session_knowledge_bases (session_id, knowledge_base_id) VALUES (?, ?)",
-            knowledgeBaseIds.map { id -> arrayOf(sessionId, id) }
-        )
     }
 
+    /**
+     * 批量加载知识库实体
+     *
+     * @param ids 知识库ID列表
+     * @return 知识库实体列表
+     */
+    private fun loadKnowledgeBases(ids: List<Long>): List<KnowledgeBaseEntity> {
+        if (ids.isEmpty()) {
+            return emptyList()
+        }
+        return entityManager.createQuery(
+            """
+            SELECT kb
+            FROM KnowledgeBaseEntity kb
+            WHERE kb.id IN :ids
+            """.trimIndent(),
+            KnowledgeBaseEntity::class.java
+        )
+            .setParameter("ids", ids)
+            .resultList
+    }
+
+    /**
+     * 生成会话标题
+     *
+     * @param names 知识库名称列表
+     * @return 会话标题
+     */
     private fun generateTitle(names: List<String>): String {
         if (names.isEmpty()) {
             return "新对话"
@@ -478,7 +501,7 @@ class RagChatSessionService(
 
     private data class SessionBase(
         val id: Long, // 会话ID
-        val title: String, // 会话标题
+        val title: String, // 标题
         val messageCount: Int?, // 消息数量
         val updatedAt: LocalDateTime?, // 更新时间
         val createdAt: LocalDateTime?, // 创建时间

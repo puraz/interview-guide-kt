@@ -2,12 +2,14 @@ package com.example.business.listener
 
 import com.example.business.constants.KnowledgeBaseStreamConstants
 import com.example.business.enums.VectorStatus
+import jakarta.persistence.EntityManager
+import jakarta.persistence.PersistenceContext
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.connection.stream.StreamRecords
 import org.springframework.data.redis.core.StringRedisTemplate
-import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Transactional
 
 /**
  * 向量化任务生产者
@@ -17,11 +19,13 @@ import org.springframework.stereotype.Component
 @Component
 class VectorizeStreamProducer(
     private val stringRedisTemplate: StringRedisTemplate,
-    private val jdbcTemplate: JdbcTemplate,
     @Value("\${app.ai.rag.vectorize.stream-key:kb:vectorize:stream}")
     private val streamKey: String
 ) {
     private val logger = LoggerFactory.getLogger(VectorizeStreamProducer::class.java)
+
+    @PersistenceContext
+    private lateinit var entityManager: EntityManager
 
     /**
      * 发送向量化任务
@@ -29,6 +33,7 @@ class VectorizeStreamProducer(
      * @param kbId 知识库ID
      * @param content 文档内容
      */
+    @Transactional(rollbackFor = [Exception::class])
     fun sendVectorizeTask(kbId: Long, content: String) {
         try {
             val record = StreamRecords.mapBacked<String, String, String>(
@@ -48,14 +53,34 @@ class VectorizeStreamProducer(
 
     private fun updateVectorStatus(kbId: Long, status: VectorStatus, error: String?, chunkCount: Int?) {
         val safeError = error?.let { if (it.length > 500) it.substring(0, 500) else it }
-        val sql = StringBuilder("UPDATE knowledge_bases SET vector_status = ?, vector_error = ?")
-        val params = mutableListOf<Any?>(status.name, safeError)
         if (chunkCount != null) {
-            sql.append(", chunk_count = ?")
-            params.add(chunkCount)
+            entityManager.createQuery(
+                """
+                UPDATE KnowledgeBaseEntity kb
+                SET kb.vectorStatus = :status,
+                    kb.vectorError = :error,
+                    kb.chunkCount = :chunkCount
+                WHERE kb.id = :kbId
+                """.trimIndent()
+            )
+                .setParameter("status", status)
+                .setParameter("error", safeError)
+                .setParameter("chunkCount", chunkCount)
+                .setParameter("kbId", kbId)
+                .executeUpdate()
+        } else {
+            entityManager.createQuery(
+                """
+                UPDATE KnowledgeBaseEntity kb
+                SET kb.vectorStatus = :status,
+                    kb.vectorError = :error
+                WHERE kb.id = :kbId
+                """.trimIndent()
+            )
+                .setParameter("status", status)
+                .setParameter("error", safeError)
+                .setParameter("kbId", kbId)
+                .executeUpdate()
         }
-        sql.append(" WHERE id = ?")
-        params.add(kbId)
-        jdbcTemplate.update(sql.toString(), *params.toTypedArray())
     }
 }

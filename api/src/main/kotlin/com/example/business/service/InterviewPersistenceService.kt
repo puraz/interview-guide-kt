@@ -3,32 +3,6 @@ package com.example.business.service
 import com.example.business.entity.InterviewAnswerEntity
 import com.example.business.entity.InterviewSessionEntity
 import com.example.business.entity.ResumeEntity
-import com.example.business.entity.answeredAt
-import com.example.business.entity.category
-import com.example.business.entity.completedAt
-import com.example.business.entity.createdAt
-import com.example.business.entity.currentQuestionIndex
-import com.example.business.entity.evaluateError
-import com.example.business.entity.evaluateStatus
-import com.example.business.entity.feedback
-import com.example.business.entity.id
-import com.example.business.entity.improvementsJson
-import com.example.business.entity.keyPointsJson
-import com.example.business.entity.overallFeedback
-import com.example.business.entity.overallScore
-import com.example.business.entity.question
-import com.example.business.entity.questionIndex
-import com.example.business.entity.questionsJson
-import com.example.business.entity.referenceAnswer
-import com.example.business.entity.referenceAnswersJson
-import com.example.business.entity.resume
-import com.example.business.entity.resumeText
-import com.example.business.entity.score
-import com.example.business.entity.session
-import com.example.business.entity.sessionId
-import com.example.business.entity.status
-import com.example.business.entity.strengthsJson
-import com.example.business.entity.userAnswer
 import com.example.business.enums.AsyncTaskStatus
 import com.example.business.repository.InterviewAnswerRepository
 import com.example.business.repository.InterviewSessionRepository
@@ -36,9 +10,8 @@ import com.example.business.repository.ResumeRepository
 import com.example.framework.core.exception.BusinessException
 import com.example.framework.core.utils.JSONUtil
 import com.fasterxml.jackson.core.type.TypeReference
-import org.babyfish.jimmer.sql.kt.ast.expression.asc
-import org.babyfish.jimmer.sql.kt.ast.expression.desc
-import org.babyfish.jimmer.sql.kt.ast.expression.eq
+import jakarta.persistence.EntityManager
+import jakarta.persistence.PersistenceContext
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -56,6 +29,9 @@ class InterviewPersistenceService(
     private val resumeRepository: ResumeRepository
 ) {
     private val logger = LoggerFactory.getLogger(InterviewPersistenceService::class.java)
+
+    @PersistenceContext
+    private lateinit var entityManager: EntityManager
 
     /**
      * 保存新的面试会话
@@ -80,18 +56,16 @@ class InterviewPersistenceService(
 
         if (resume.resumeText.isNullOrBlank() && resumeText.isNotBlank()) {
             // 简历文本缺失时，使用当前输入补全
-            resumeRepository.sql.createUpdate(ResumeEntity::class) {
-                set(table.resumeText, resumeText)
-                where(table.id eq resumeId)
-            }.execute()
+            resume.resumeText = resumeText
+            resumeRepository.save(resume)
         }
 
         val questionsJson = JSONUtil.toJsonStr(questions)
             ?: throw BusinessException("问题列表序列化失败")
 
-        val entity = InterviewSessionEntity {
+        val entity = InterviewSessionEntity().apply {
             this.sessionId = sessionId // 会话ID
-            this.resume = ResumeEntity { id = resumeId } // 关联简历
+            this.resume = resume // 关联简历
             this.totalQuestions = totalQuestions // 题目总数
             this.currentQuestionIndex = 0 // 当前题索引
             this.status = InterviewSessionEntity.SessionStatus.CREATED // 会话状态
@@ -120,15 +94,34 @@ class InterviewPersistenceService(
      */
     @Transactional(rollbackFor = [Exception::class])
     fun updateSessionStatus(sessionId: String, status: InterviewSessionEntity.SessionStatus) {
-        sessionRepository.sql.createUpdate(InterviewSessionEntity::class) {
-            set(table.status, status)
-            if (status == InterviewSessionEntity.SessionStatus.COMPLETED ||
-                status == InterviewSessionEntity.SessionStatus.EVALUATED
-            ) {
-                set(table.completedAt, LocalDateTime.now())
-            }
-            where(table.sessionId eq sessionId)
-        }.execute()
+        val now = LocalDateTime.now()
+        if (status == InterviewSessionEntity.SessionStatus.COMPLETED ||
+            status == InterviewSessionEntity.SessionStatus.EVALUATED
+        ) {
+            entityManager.createQuery(
+                """
+                UPDATE InterviewSessionEntity s
+                SET s.status = :status,
+                    s.completedAt = :completedAt
+                WHERE s.sessionId = :sessionId
+                """.trimIndent()
+            )
+                .setParameter("status", status)
+                .setParameter("completedAt", now)
+                .setParameter("sessionId", sessionId)
+                .executeUpdate()
+        } else {
+            entityManager.createQuery(
+                """
+                UPDATE InterviewSessionEntity s
+                SET s.status = :status
+                WHERE s.sessionId = :sessionId
+                """.trimIndent()
+            )
+                .setParameter("status", status)
+                .setParameter("sessionId", sessionId)
+                .executeUpdate()
+        }
     }
 
     /**
@@ -141,11 +134,18 @@ class InterviewPersistenceService(
     @Transactional(rollbackFor = [Exception::class])
     fun updateEvaluateStatus(sessionId: String, status: AsyncTaskStatus, error: String?) {
         val safeError = error?.let { if (it.length > 500) it.substring(0, 500) else it }
-        sessionRepository.sql.createUpdate(InterviewSessionEntity::class) {
-            set(table.evaluateStatus, status)
-            set(table.evaluateError, safeError)
-            where(table.sessionId eq sessionId)
-        }.execute()
+        entityManager.createQuery(
+            """
+            UPDATE InterviewSessionEntity s
+            SET s.evaluateStatus = :status,
+                s.evaluateError = :error
+            WHERE s.sessionId = :sessionId
+            """.trimIndent()
+        )
+            .setParameter("status", status)
+            .setParameter("error", safeError)
+            .setParameter("sessionId", sessionId)
+            .executeUpdate()
     }
 
     /**
@@ -156,11 +156,18 @@ class InterviewPersistenceService(
      */
     @Transactional(rollbackFor = [Exception::class])
     fun updateCurrentQuestionIndex(sessionId: String, index: Int) {
-        sessionRepository.sql.createUpdate(InterviewSessionEntity::class) {
-            set(table.currentQuestionIndex, index)
-            set(table.status, InterviewSessionEntity.SessionStatus.IN_PROGRESS)
-            where(table.sessionId eq sessionId)
-        }.execute()
+        entityManager.createQuery(
+            """
+            UPDATE InterviewSessionEntity s
+            SET s.currentQuestionIndex = :index,
+                s.status = :status
+            WHERE s.sessionId = :sessionId
+            """.trimIndent()
+        )
+            .setParameter("index", index)
+            .setParameter("status", InterviewSessionEntity.SessionStatus.IN_PROGRESS)
+            .setParameter("sessionId", sessionId)
+            .executeUpdate()
     }
 
     /**
@@ -184,17 +191,26 @@ class InterviewPersistenceService(
         score: Int,
         feedback: String?
     ) {
-        val sessionDbId = getSessionDbId(sessionId) ?: throw BusinessException("面试会话不存在")
+        val session = findBySessionId(sessionId) ?: throw BusinessException("面试会话不存在")
 
-        val existing = answerRepository.sql.createQuery(InterviewAnswerEntity::class) {
-            where(table.session.id eq sessionDbId)
-            where(table.questionIndex eq questionIndex)
-            select(table)
-        }.fetchOneOrNull()
+        val existing = entityManager.createQuery(
+            """
+            SELECT a
+            FROM InterviewAnswerEntity a
+            WHERE a.session.id = :sessionDbId
+              AND a.questionIndex = :questionIndex
+            """.trimIndent(),
+            InterviewAnswerEntity::class.java
+        )
+            .setParameter("sessionDbId", session.id)
+            .setParameter("questionIndex", questionIndex)
+            .setMaxResults(1)
+            .resultList
+            .firstOrNull()
 
         if (existing == null) {
-            val entity = InterviewAnswerEntity {
-                this.session = InterviewSessionEntity { id = sessionDbId } // 关联会话
+            val entity = InterviewAnswerEntity().apply {
+                this.session = session // 关联会话
                 this.questionIndex = questionIndex // 问题索引
                 this.question = question // 问题内容
                 this.category = category // 问题类别
@@ -207,15 +223,13 @@ class InterviewPersistenceService(
             }
             answerRepository.save(entity)
         } else {
-            answerRepository.sql.createUpdate(InterviewAnswerEntity::class) {
-                set(table.question, question)
-                set(table.category, category)
-                set(table.userAnswer, userAnswer)
-                set(table.score, score)
-                set(table.feedback, feedback)
-                set(table.answeredAt, LocalDateTime.now())
-                where(table.id eq existing.id)
-            }.execute()
+            existing.question = question // 更新问题内容
+            existing.category = category // 更新问题类别
+            existing.userAnswer = userAnswer // 更新用户回答
+            existing.score = score // 更新得分
+            existing.feedback = feedback // 更新反馈
+            existing.answeredAt = LocalDateTime.now() // 更新时间
+            answerRepository.save(existing)
         }
     }
 
@@ -227,26 +241,31 @@ class InterviewPersistenceService(
      */
     @Transactional(rollbackFor = [Exception::class])
     fun saveReport(sessionId: String, report: AnswerEvaluationService.InterviewReportVo) {
+        val session = findBySessionId(sessionId) ?: throw BusinessException("面试会话不存在")
+
         val strengthsJson = JSONUtil.toJsonStr(report.strengths)
         val improvementsJson = JSONUtil.toJsonStr(report.improvements)
         val referenceAnswersJson = JSONUtil.toJsonStr(report.referenceAnswers)
 
-        sessionRepository.sql.createUpdate(InterviewSessionEntity::class) {
-            set(table.overallScore, report.overallScore)
-            set(table.overallFeedback, report.overallFeedback)
-            set(table.strengthsJson, strengthsJson)
-            set(table.improvementsJson, improvementsJson)
-            set(table.referenceAnswersJson, referenceAnswersJson)
-            set(table.status, InterviewSessionEntity.SessionStatus.EVALUATED)
-            set(table.completedAt, LocalDateTime.now())
-            where(table.sessionId eq sessionId)
-        }.execute()
+        session.overallScore = report.overallScore // 总分
+        session.overallFeedback = report.overallFeedback // 总体评价
+        session.strengthsJson = strengthsJson // 优势JSON
+        session.improvementsJson = improvementsJson // 改进建议JSON
+        session.referenceAnswersJson = referenceAnswersJson // 参考答案JSON
+        session.status = InterviewSessionEntity.SessionStatus.EVALUATED // 评估完成状态
+        session.completedAt = LocalDateTime.now() // 完成时间
 
-        val sessionDbId = getSessionDbId(sessionId) ?: throw BusinessException("面试会话不存在")
-        val existingAnswers = answerRepository.sql.createQuery(InterviewAnswerEntity::class) {
-            where(table.session.id eq sessionDbId)
-            select(table)
-        }.execute()
+        val existingAnswers = entityManager.createQuery(
+            """
+            SELECT a
+            FROM InterviewAnswerEntity a
+            WHERE a.session.id = :sessionDbId
+            """.trimIndent(),
+            InterviewAnswerEntity::class.java
+        )
+            .setParameter("sessionDbId", session.id)
+            .resultList
+
         val answerMap = existingAnswers.associateBy { it.questionIndex }
         val refAnswerMap = report.referenceAnswers.associateBy { it.questionIndex }
 
@@ -255,8 +274,8 @@ class InterviewPersistenceService(
             val refAnswer = refAnswerMap[detail.questionIndex]
             val keyPointsJson = refAnswer?.let { JSONUtil.toJsonStr(it.keyPoints) }
             if (existing == null) {
-                val created = InterviewAnswerEntity {
-                    this.session = InterviewSessionEntity { id = sessionDbId } // 关联会话
+                val created = InterviewAnswerEntity().apply {
+                    this.session = session // 关联会话
                     this.questionIndex = detail.questionIndex // 问题索引
                     this.question = detail.question // 问题内容
                     this.category = detail.category // 问题类别
@@ -269,13 +288,11 @@ class InterviewPersistenceService(
                 }
                 answerRepository.save(created)
             } else {
-                answerRepository.sql.createUpdate(InterviewAnswerEntity::class) {
-                    set(table.score, detail.score)
-                    set(table.feedback, detail.feedback)
-                    set(table.referenceAnswer, refAnswer?.referenceAnswer)
-                    set(table.keyPointsJson, keyPointsJson)
-                    where(table.id eq existing.id)
-                }.execute()
+                existing.score = detail.score // 更新得分
+                existing.feedback = detail.feedback // 更新反馈
+                existing.referenceAnswer = refAnswer?.referenceAnswer // 更新参考答案
+                existing.keyPointsJson = keyPointsJson // 更新关键点
+                answerRepository.save(existing)
             }
         }
     }
@@ -287,10 +304,18 @@ class InterviewPersistenceService(
      * @return 会话实体
      */
     fun findBySessionId(sessionId: String): InterviewSessionEntity? {
-        return sessionRepository.sql.createQuery(InterviewSessionEntity::class) {
-            where(table.sessionId eq sessionId)
-            select(table)
-        }.fetchOneOrNull()
+        return entityManager.createQuery(
+            """
+            SELECT s
+            FROM InterviewSessionEntity s
+            WHERE s.sessionId = :sessionId
+            """.trimIndent(),
+            InterviewSessionEntity::class.java
+        )
+            .setParameter("sessionId", sessionId)
+            .setMaxResults(1)
+            .resultList
+            .firstOrNull()
     }
 
     /**
@@ -300,17 +325,27 @@ class InterviewPersistenceService(
      * @return 未完成会话
      */
     fun findUnfinishedSession(resumeId: Long): InterviewSessionEntity? {
-        return sessionRepository.sql.createQuery(InterviewSessionEntity::class) {
-            where(table.resume.id eq resumeId)
-            where(
-                org.babyfish.jimmer.sql.kt.ast.expression.or(
-                    table.status eq InterviewSessionEntity.SessionStatus.CREATED,
-                    table.status eq InterviewSessionEntity.SessionStatus.IN_PROGRESS
+        return entityManager.createQuery(
+            """
+            SELECT s
+            FROM InterviewSessionEntity s
+            WHERE s.resume.id = :resumeId
+              AND s.status IN (:statusList)
+            ORDER BY s.createdAt DESC
+            """.trimIndent(),
+            InterviewSessionEntity::class.java
+        )
+            .setParameter(
+                "statusList",
+                listOf(
+                    InterviewSessionEntity.SessionStatus.CREATED,
+                    InterviewSessionEntity.SessionStatus.IN_PROGRESS
                 )
             )
-            orderBy(table.createdAt.desc())
-            select(table)
-        }.fetchFirstOrNull()
+            .setParameter("resumeId", resumeId)
+            .setMaxResults(1)
+            .resultList
+            .firstOrNull()
     }
 
     /**
@@ -320,12 +355,17 @@ class InterviewPersistenceService(
      * @return 答案列表
      */
     fun findAnswersBySessionId(sessionId: String): List<InterviewAnswerEntity> {
-        val sessionDbId = getSessionDbId(sessionId) ?: return emptyList()
-        return answerRepository.sql.createQuery(InterviewAnswerEntity::class) {
-            where(table.session.id eq sessionDbId)
-            orderBy(table.questionIndex.asc())
-            select(table)
-        }.execute()
+        return entityManager.createQuery(
+            """
+            SELECT a
+            FROM InterviewAnswerEntity a
+            WHERE a.session.sessionId = :sessionId
+            ORDER BY a.questionIndex ASC
+            """.trimIndent(),
+            InterviewAnswerEntity::class.java
+        )
+            .setParameter("sessionId", sessionId)
+            .resultList
     }
 
     /**
@@ -335,11 +375,18 @@ class InterviewPersistenceService(
      * @return 历史问题列表
      */
     fun getHistoricalQuestionsByResumeId(resumeId: Long): List<String> {
-        val sessions = sessionRepository.sql.createQuery(InterviewSessionEntity::class) {
-            where(table.resume.id eq resumeId)
-            orderBy(table.createdAt.desc())
-            select(table.questionsJson)
-        }.execute().take(10)
+        val sessions = entityManager.createQuery(
+            """
+            SELECT s.questionsJson
+            FROM InterviewSessionEntity s
+            WHERE s.resume.id = :resumeId
+            ORDER BY s.createdAt DESC
+            """.trimIndent(),
+            String::class.java
+        )
+            .setParameter("resumeId", resumeId)
+            .setMaxResults(10)
+            .resultList
 
         val questions = mutableListOf<String>()
         for (json in sessions) {
@@ -363,13 +410,25 @@ class InterviewPersistenceService(
      */
     @Transactional(rollbackFor = [Exception::class])
     fun deleteSessionBySessionId(sessionId: String) {
-        val sessionDbId = getSessionDbId(sessionId) ?: return
-        answerRepository.sql.createDelete(InterviewAnswerEntity::class) {
-            where(table.session.id eq sessionDbId)
-        }.execute()
-        sessionRepository.sql.createDelete(InterviewSessionEntity::class) {
-            where(table.id eq sessionDbId)
-        }.execute()
+        val sessionDbId = entityManager.createQuery(
+            "SELECT s.id FROM InterviewSessionEntity s WHERE s.sessionId = :sessionId",
+            Long::class.java
+        )
+            .setParameter("sessionId", sessionId)
+            .setMaxResults(1)
+            .resultList
+            .firstOrNull() ?: return
+
+        entityManager.createQuery(
+            "DELETE FROM InterviewAnswerEntity a WHERE a.session.id = :sessionDbId"
+        )
+            .setParameter("sessionDbId", sessionDbId)
+            .executeUpdate()
+        entityManager.createQuery(
+            "DELETE FROM InterviewSessionEntity s WHERE s.id = :sessionDbId"
+        )
+            .setParameter("sessionDbId", sessionDbId)
+            .executeUpdate()
     }
 
     /**
@@ -379,28 +438,28 @@ class InterviewPersistenceService(
      * @return 简历文本
      */
     fun getResumeTextBySessionId(sessionId: String): String? {
-        val resumeId = sessionRepository.sql.createQuery(InterviewSessionEntity::class) {
-            where(table.sessionId eq sessionId)
-            select(table.resume.id)
-        }.fetchOneOrNull() ?: return null
-
-        return resumeRepository.sql.createQuery(ResumeEntity::class) {
-            where(table.id eq resumeId)
-            select(table.resumeText)
-        }.fetchOneOrNull()
+        return entityManager.createQuery(
+            """
+            SELECT r.resumeText
+            FROM InterviewSessionEntity s
+            JOIN s.resume r
+            WHERE s.sessionId = :sessionId
+            """.trimIndent(),
+            String::class.java
+        )
+            .setParameter("sessionId", sessionId)
+            .setMaxResults(1)
+            .resultList
+            .firstOrNull()
     }
 
+    /**
+     * 根据简历ID查询简历
+     *
+     * @param resumeId 简历ID
+     * @return 简历实体
+     */
     private fun findResumeById(resumeId: Long): ResumeEntity? {
-        return resumeRepository.sql.createQuery(ResumeEntity::class) {
-            where(table.id eq resumeId)
-            select(table)
-        }.fetchOneOrNull()
-    }
-
-    private fun getSessionDbId(sessionId: String): Long? {
-        return sessionRepository.sql.createQuery(InterviewSessionEntity::class) {
-            where(table.sessionId eq sessionId)
-            select(table.id)
-        }.fetchOneOrNull()
+        return resumeRepository.findById(resumeId).orElse(null)
     }
 }

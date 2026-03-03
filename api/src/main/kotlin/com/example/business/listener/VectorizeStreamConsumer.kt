@@ -3,6 +3,8 @@ package com.example.business.listener
 import com.example.business.constants.KnowledgeBaseStreamConstants
 import com.example.business.enums.VectorStatus
 import com.example.business.service.KnowledgeBaseVectorService
+import jakarta.persistence.EntityManager
+import jakarta.persistence.PersistenceContext
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.connection.stream.Consumer
@@ -10,9 +12,9 @@ import org.springframework.data.redis.connection.stream.ReadOffset
 import org.springframework.data.redis.connection.stream.StreamOffset
 import org.springframework.data.redis.connection.stream.StreamReadOptions
 import org.springframework.data.redis.core.StringRedisTemplate
-import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Transactional
 import java.time.Duration
 import java.util.UUID
 
@@ -25,7 +27,6 @@ import java.util.UUID
 class VectorizeStreamConsumer(
     private val stringRedisTemplate: StringRedisTemplate,
     private val vectorService: KnowledgeBaseVectorService,
-    private val jdbcTemplate: JdbcTemplate,
     @Value("\${app.ai.rag.vectorize.stream-key:kb:vectorize:stream}")
     private val streamKey: String,
     @Value("\${app.ai.rag.vectorize.group:kb-vectorize-group}")
@@ -44,10 +45,14 @@ class VectorizeStreamConsumer(
     private val logger = LoggerFactory.getLogger(VectorizeStreamConsumer::class.java)
     private val consumerName: String = consumerPrefix + UUID.randomUUID().toString().substring(0, 8)
 
+    @PersistenceContext
+    private lateinit var entityManager: EntityManager
+
     /**
      * 轮询消费向量化任务
      */
     @Scheduled(fixedDelayString = "\${app.ai.rag.vectorize.poll-interval-ms:1000}")
+    @Transactional(rollbackFor = [Exception::class])
     fun poll() {
         ensureGroup()
         val streamOps = stringRedisTemplate.opsForStream<String, String>()
@@ -104,15 +109,35 @@ class VectorizeStreamConsumer(
 
     private fun updateVectorStatus(kbId: Long, status: VectorStatus, error: String?, chunkCount: Int?) {
         val safeError = error?.let { if (it.length > 500) it.substring(0, 500) else it }
-        val sql = StringBuilder("UPDATE knowledge_bases SET vector_status = ?, vector_error = ?")
-        val params = mutableListOf<Any?>(status.name, safeError)
         if (chunkCount != null) {
-            sql.append(", chunk_count = ?")
-            params.add(chunkCount)
+            entityManager.createQuery(
+                """
+                UPDATE KnowledgeBaseEntity kb
+                SET kb.vectorStatus = :status,
+                    kb.vectorError = :error,
+                    kb.chunkCount = :chunkCount
+                WHERE kb.id = :kbId
+                """.trimIndent()
+            )
+                .setParameter("status", status)
+                .setParameter("error", safeError)
+                .setParameter("chunkCount", chunkCount)
+                .setParameter("kbId", kbId)
+                .executeUpdate()
+        } else {
+            entityManager.createQuery(
+                """
+                UPDATE KnowledgeBaseEntity kb
+                SET kb.vectorStatus = :status,
+                    kb.vectorError = :error
+                WHERE kb.id = :kbId
+                """.trimIndent()
+            )
+                .setParameter("status", status)
+                .setParameter("error", safeError)
+                .setParameter("kbId", kbId)
+                .executeUpdate()
         }
-        sql.append(" WHERE id = ?")
-        params.add(kbId)
-        jdbcTemplate.update(sql.toString(), *params.toTypedArray())
     }
 
     private fun ensureGroup() {
