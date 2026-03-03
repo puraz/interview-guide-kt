@@ -7,13 +7,16 @@ plugins {
 }
 
 group = "com.example"
-version = "1.1.12"
+version = "1.0.0"
 description = ""
 
 repositories {
     mavenCentral()
     maven {
         url = uri("https://artifacts-cn-beijing.volces.com/repository/douyin-openapi/")
+    }
+    maven {
+        url = uri("https://repo.spring.io/milestone")
     }
 }
 
@@ -30,8 +33,8 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_25
-    targetCompatibility = JavaVersion.VERSION_25
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
     sourceSets {
         main {
             java.srcDir("src/main/kotlin")
@@ -67,13 +70,13 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-aop")
     implementation("org.springframework.boot:spring-boot-starter-cache")
     implementation("org.springframework.boot:spring-boot-starter-websocket")
-    implementation("org.springframework.boot:spring-boot-starter-webflux")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 
     // 缓存、Redis 相关
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
+    implementation("org.redisson:redisson-spring-boot-starter:4.0.0")
     implementation("org.apache.commons:commons-pool2")
 
     // Kotlin 相关
@@ -89,6 +92,10 @@ dependencies {
     // Hibernate Vector（pgvector）
     implementation("org.hibernate.orm:hibernate-vector")
 
+    // Spring AI（OpenAI兼容模式 + pgvector）
+    implementation("org.springframework.ai:spring-ai-starter-model-openai:2.0.0-M1")
+    implementation("org.springframework.ai:spring-ai-starter-vector-store-pgvector:2.0.0-M1")
+
     // Security 相关
     implementation("cn.dev33:sa-token-spring-boot3-starter")
     implementation("cn.dev33:sa-token-redis-jackson")
@@ -103,12 +110,10 @@ dependencies {
     implementation("com.fasterxml.jackson.core:jackson-databind")
 
     // OpenAPI 3 / Swagger UI（Spring Boot 3 官方推荐：springdoc-openapi）
-    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.5.0")
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.1")
 
-    // OSS 相关
-    implementation("com.aliyun.oss:aliyun-sdk-oss:3.18.3")
-    implementation("io.minio:minio:8.5.17")
-    implementation("com.qiniu:qiniu-java-sdk:7.19.0")
+    // OSS 相关（S3兼容）
+    implementation("software.amazon.awssdk:s3:2.29.51")
 
     // POI 相关
     implementation("cn.afterturn:easypoi-annotation:4.5.0")
@@ -122,6 +127,13 @@ dependencies {
     implementation("com.itextpdf:itext-core:8.0.5")
     implementation("com.itextpdf:font-asian:8.0.5")
 
+    // 文档解析相关（Apache Tika）
+    implementation("org.apache.tika:tika-core:2.9.2")
+    implementation("org.apache.tika:tika-parsers-standard-package:2.9.2")
+
+    // 拼音转换（文件名清理）
+    implementation("com.belerweb:pinyin4j:2.5.0")
+
     implementation("com.google.code.gson:gson:2.13.2")
 
     // Utils 相关
@@ -132,8 +144,6 @@ dependencies {
     implementation("cn.hutool:hutool-jwt")
     implementation("com.github.whvcse:easy-captcha:1.6.2")
     implementation("org.jsoup:jsoup:1.17.2")
-    implementation("org.apache.tika:tika-core:2.9.2")
-    implementation("org.apache.tika:tika-parsers-standard-package:2.9.2")
 
     // 其它
     implementation("com.alibaba:transmittable-thread-local:2.14.5")
