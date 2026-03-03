@@ -11,9 +11,3 @@ spring:
       port: 6379
       password: 123456
 
-# 开发环境可以启用更多调试功能
-zeta:
-  database:
-    druid:
-      stat-view-servlet:
-        enabled: true

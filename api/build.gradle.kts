@@ -8,9 +8,7 @@ plugins {
 
 group = "com.example"
 version = "1.1.12"
-description = "使用kotlin语言基于spring boot、spring data jpa、sa-token等框架开发的项目脚手架。"
-val wxJavaSdkVersion = "4.7.7.B"
-val langchain4jVersion = "1.10.0" // LangChain4j 版本：用于统一大模型调用抽象与 OpenAI 兼容适配 // DeepSeek/Qwen/OpenAI 可复用
+description = ""
 
 repositories {
     mavenCentral()
@@ -32,8 +30,8 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
     sourceSets {
         main {
             java.srcDir("src/main/kotlin")
@@ -124,9 +122,6 @@ dependencies {
     implementation("com.itextpdf:itext-core:8.0.5")
     implementation("com.itextpdf:font-asian:8.0.5")
 
-    // LangChain4j（大模型统一调用框架）
-    implementation("dev.langchain4j:langchain4j:${langchain4jVersion}") // 核心抽象与通用能力 // 业务层只依赖自定义 AiChatClient
-    implementation("dev.langchain4j:langchain4j-open-ai:${langchain4jVersion}") // OpenAI 兼容实现（DeepSeek 兼容）// 用于 DeepSeek Adapter
     implementation("com.google.code.gson:gson:2.13.2")
 
     // Utils 相关
