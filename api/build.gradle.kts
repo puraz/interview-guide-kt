@@ -79,6 +79,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-aop")
     implementation("org.springframework.boot:spring-boot-starter-cache")
     implementation("org.springframework.boot:spring-boot-starter-websocket")
+    implementation("org.springframework.boot:spring-boot-starter-webflux")
+    implementation("org.springframework.boot:spring-boot-starter-jdbc")
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 
@@ -136,7 +138,6 @@ dependencies {
     // LangChain4j（大模型统一调用框架）
     implementation("dev.langchain4j:langchain4j:${langchain4jVersion}") // 核心抽象与通用能力 // 业务层只依赖自定义 AiChatClient
     implementation("dev.langchain4j:langchain4j-open-ai:${langchain4jVersion}") // OpenAI 兼容实现（DeepSeek 兼容）// 用于 DeepSeek Adapter
-
     implementation("com.google.code.gson:gson:2.13.2")
 
     // Utils 相关
@@ -147,6 +148,8 @@ dependencies {
     implementation("cn.hutool:hutool-jwt")
     implementation("com.github.whvcse:easy-captcha:1.6.2")
     implementation("org.jsoup:jsoup:1.17.2")
+    implementation("org.apache.tika:tika-core:2.9.2")
+    implementation("org.apache.tika:tika-parsers-standard-package:2.9.2")
 
     // 其它
     implementation("com.alibaba:transmittable-thread-local:2.14.5")

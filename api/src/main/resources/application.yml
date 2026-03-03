@@ -23,6 +23,14 @@ ai:
       default-temperature: 0.7 # 文本生成默认温度（Cook 菜谱生成使用）//
       default-max-tokens: # 默认最大输出 token（为空表示交给模型默认策略）//
       timeout: 300s # 超时时间：与前端 300000ms 对齐//
+  embedding:
+    openai:
+      base-url: ${AI_EMBEDDING_BASE_URL:https://api.deepseek.com} # Embedding OpenAI 兼容入口
+      api-key: ${AI_EMBEDDING_API_KEY:} # Embedding ApiKey
+      model: text-embedding-3-small # Embedding 模型名称
+      timeout: 120s # Embedding 超时时间
+      max-retries: 2 # Embedding 重试次数
+      dimensions: 1536 # 向量维度
   image-generation:
     base-url: https://open.bigmodel.cn/api/paas/v4/images/generations # 图片生成接口地址（完整 endpoint）//
     api-key: ${IMAGE_GENERATION_API_KEY:e74dbf99210f4a539157c8d0f5b3bae3.XUEeUM0RA2s0wMWV} # 图片生成 ApiKey（不要提交到 git）// 为空会导致图片生成失败
@@ -34,6 +42,28 @@ app:
     follow-up-count: 1 # 面试问题追问数量 // 生成主问题时的追问条数
     evaluation:
       batch-size: 8 # 面试评估单批次题目数量 // 避免一次性输入过长
+  ai:
+    rag:
+      rewrite:
+        enabled: true # 是否启用问题重写
+      search:
+        short-query-length: 4 # 短问题长度阈值
+        topk-short: 20 # 短问题召回数量
+        topk-medium: 12 # 中等问题召回数量
+        topk-long: 8 # 长问题召回数量
+        min-score-short: 0.18 # 短问题最小相似度
+        min-score-default: 0.28 # 默认最小相似度
+      vectorize:
+        stream-key: kb:vectorize:stream # 向量化任务 Stream Key
+        group: kb-vectorize-group # Stream 消费者组
+        consumer-prefix: kb-vectorize-consumer- # 消费者名称前缀
+        poll-interval-ms: 1000 # 轮询间隔
+        batch-size: 1 # 每次拉取条数
+        max-retry: 3 # 最大重试次数
+        max-stream-len: 2000 # Stream 最大长度
+        chunk-size: 800 # 分块长度
+        chunk-overlap: 100 # 分块重叠
+        embedding-batch-size: 10 # Embedding 批量大小
 
 zeta:
   # 操作日志配置
