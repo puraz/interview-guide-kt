@@ -1,5 +1,5 @@
 ## interview-guide-kt
-当前项目是一个使用 kotlin + springboot 3 + jimmer 实现的一个仿照当前根目录下的 interview-guide的一个技术性重写项目。
+当前项目（api）是一个使用 kotlin 实现的一个完全仿照当前根目录下的 interview-guide的一个技术性重写项目，只是语言从java切换至kotlin其他的什么都不变！！！！
 
 ## Project Structure & Modules
 
