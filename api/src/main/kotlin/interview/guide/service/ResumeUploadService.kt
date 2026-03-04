@@ -124,7 +124,7 @@ class ResumeUploadService(
                 "duplicate" to true
             )
         } else {
-            val analyzeStatus = (resume.analyzeStatus as? AsyncTaskStatus) ?: AsyncTaskStatus.PENDING // 状态兜底为PENDING
+            val analyzeStatus = resume.analyzeStatus
             mapOf(
                 "resume" to mapOf(
                     "id" to resume.id,
@@ -157,7 +157,7 @@ class ResumeUploadService(
         var resumeText = resume.resumeText
         if (resumeText.isNullOrBlank()) {
             resumeText = parseService.downloadAndParseContent(resume.storageKey, resume.originalFilename)
-            if (resumeText.isNullOrBlank()) {
+            if (resumeText.isBlank()) {
                 throw BusinessException(ErrorCode.RESUME_PARSE_FAILED, "无法获取简历文本内容")
             }
             resume.resumeText = resumeText
