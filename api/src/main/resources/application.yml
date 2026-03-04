@@ -42,7 +42,6 @@ spring:
       config: |
         singleServerConfig:
           address: "redis://${REDIS_HOST:localhost}:${REDIS_PORT:6379}"
-          password: "${REDIS_PASSWORD:123456}" # Redis密码（如启用了requirepass）
           database: 0
           connectionMinimumIdleSize: 10
           connectionPoolSize: 64
