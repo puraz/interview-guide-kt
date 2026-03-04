@@ -182,21 +182,42 @@ class AnswerEvaluationService(
         for (result in batchResults) {
             val current = result.report.questionEvaluations ?: emptyList()
             val expectedSize = result.endIndex - result.startIndex
-            if (current.size < expectedSize) {
-                throw BusinessException(ErrorCode.INTERVIEW_EVALUATION_FAILED, "面试评估结果缺失，无法生成完整报告")
+            for (i in 0 until expectedSize) {
+                val evaluation = if (i < current.size) {
+                    current[i]
+                } else {
+                    QuestionEvaluationDto(
+                        questionIndex = result.startIndex + i,
+                        score = 0,
+                        feedback = "该题未成功生成评估结果，系统按 0 分处理。",
+                        referenceAnswer = "",
+                        keyPoints = emptyList()
+                    )
+                }
+                merged.add(evaluation)
             }
-            merged.addAll(current)
         }
         if (merged.size < questionSize) {
-            throw BusinessException(ErrorCode.INTERVIEW_EVALUATION_FAILED, "面试评估结果数量不足，无法生成完整报告")
+            for (i in merged.size until questionSize) {
+                merged.add(
+                    QuestionEvaluationDto(
+                        questionIndex = i,
+                        score = 0,
+                        feedback = "该题未成功生成评估结果，系统按 0 分处理。",
+                        referenceAnswer = "",
+                        keyPoints = emptyList()
+                    )
+                )
+            }
         }
         return merged
     }
 
     private fun mergeOverallFeedback(batchResults: List<BatchEvaluationResult>): String {
-        return batchResults
+        val feedback = batchResults
             .mapNotNull { it.report.overallFeedback?.takeIf { feedback -> feedback.isNotBlank() } }
             .joinToString("\n\n")
+        return if (feedback.isNotBlank()) feedback else "本次面试已完成分批评估，但未生成有效综合评语。"
     }
 
     private fun mergeListItems(batchResults: List<BatchEvaluationResult>, strengthsMode: Boolean): List<String> {
@@ -241,9 +262,15 @@ class AnswerEvaluationService(
                 "总结评估",
                 log
             )
-
+            val overallFeedback = if (!dto.overallFeedback.isNullOrBlank()) {
+                dto.overallFeedback
+            } else {
+                fallbackOverallFeedback
+            }
+            val strengths = sanitizeSummaryItems(dto.strengths, fallbackStrengths)
+            val improvements = sanitizeSummaryItems(dto.improvements, fallbackImprovements)
             log.debug("二次汇总评估完成: sessionId={}", sessionId)
-            dto
+            FinalSummaryDto(overallFeedback, strengths, improvements)
         } catch (e: Exception) {
             log.warn("二次汇总评估失败，降级到批次聚合结果: sessionId={}, error={}", sessionId, e.message)
             FinalSummaryDto(
@@ -266,12 +293,12 @@ class AnswerEvaluationService(
         questions: List<InterviewQuestionVo>,
         evaluations: List<QuestionEvaluationDto>
     ): String {
-        val categoryScores = linkedMapOf<String, MutableList<Int>>()
+        val categoryScores = linkedMapOf<String?, MutableList<Int>>()
         for (i in questions.indices) {
             val q = questions[i]
             val eval = if (i < evaluations.size) evaluations[i] else null
             val score = if (eval != null && !q.userAnswer.isNullOrBlank()) eval.score else 0
-            categoryScores.computeIfAbsent(q.category ?: "未分类") { mutableListOf() }.add(score)
+            categoryScores.computeIfAbsent(q.category) { mutableListOf() }.add(score)
         }
 
         return categoryScores.entries
@@ -314,15 +341,15 @@ class AnswerEvaluationService(
     ): InterviewReportVo {
         val questionDetails = mutableListOf<InterviewReportVo.QuestionEvaluationVo>()
         val referenceAnswers = mutableListOf<InterviewReportVo.ReferenceAnswerVo>()
-        val categoryScoresMap = linkedMapOf<String, MutableList<Int>>()
+        val categoryScoresMap = linkedMapOf<String?, MutableList<Int>>() // 分类可能为空，需保持与Java一致
 
         val answeredCount = questions.count { !it.userAnswer.isNullOrBlank() }
 
         for (i in questions.indices) {
-            val eval = evaluations[i]
+            val eval = evaluations.getOrNull(i)
             val q = questions[i]
             val hasAnswer = !q.userAnswer.isNullOrBlank()
-            val score = if (hasAnswer) eval.score else 0
+            val score = if (hasAnswer) eval?.score ?: 0 else 0
 
             questionDetails.add(
                 InterviewReportVo.QuestionEvaluationVo(
@@ -331,7 +358,7 @@ class AnswerEvaluationService(
                     q.category,
                     q.userAnswer,
                     score,
-                    eval.feedback
+                    eval?.feedback ?: "该题未成功生成评估反馈。"
                 )
             )
 
@@ -339,12 +366,12 @@ class AnswerEvaluationService(
                 InterviewReportVo.ReferenceAnswerVo(
                     q.questionIndex,
                     q.question,
-                    eval.referenceAnswer,
-                    eval.keyPoints ?: emptyList()
+                    eval?.referenceAnswer ?: "",
+                    eval?.keyPoints
                 )
             )
 
-            categoryScoresMap.computeIfAbsent(q.category ?: "未分类") { mutableListOf() }.add(score)
+            categoryScoresMap.computeIfAbsent(q.category) { mutableListOf() }.add(score)
         }
 
         val categoryScores = categoryScoresMap.entries.map { (category, scores) ->

@@ -172,8 +172,9 @@ class InterviewPersistenceService(
                 val refAns = refAnswerMap[eval.questionIndex]
                 if (refAns != null) {
                     answer.referenceAnswer = refAns.referenceAnswer
-                    if (refAns.keyPoints.isNotEmpty()) {
-                        answer.keyPointsJson = objectMapper.writeValueAsString(refAns.keyPoints)
+                    val keyPoints = refAns.keyPoints
+                    if (!keyPoints.isNullOrEmpty()) {
+                        answer.keyPointsJson = objectMapper.writeValueAsString(keyPoints)
                     }
                 }
 

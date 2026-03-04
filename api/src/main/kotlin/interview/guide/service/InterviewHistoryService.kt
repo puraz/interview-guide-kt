@@ -63,10 +63,10 @@ class InterviewHistoryService(
      * 构建答案详情列表（包含所有题目）
      */
     private fun buildAnswerDetailList(
-        allQuestions: List<InterviewQuestionVo>,
+        allQuestions: List<InterviewQuestionVo>?,
         answers: List<InterviewAnswerEntity>
     ): List<InterviewDetailVo.AnswerDetailVo> {
-        if (allQuestions.isEmpty()) {
+        if (allQuestions.isNullOrEmpty()) {
             return answers.map { answer ->
                 InterviewDetailVo.AnswerDetailVo(
                     questionIndex = answer.questionIndex,
@@ -104,10 +104,10 @@ class InterviewHistoryService(
                     question = question.question,
                     category = question.category,
                     userAnswer = null,
-                    score = null,
-                    feedback = null,
+                    score = question.score ?: 0,
+                    feedback = question.feedback,
                     referenceAnswer = null,
-                    keyPoints = emptyList(),
+                    keyPoints = null,
                     answeredAt = null
                 )
             }
@@ -117,43 +117,43 @@ class InterviewHistoryService(
     /**
      * 从 JSON 提取 keyPoints
      */
-    private fun extractKeyPoints(answer: InterviewAnswerEntity): List<String> {
+    private fun extractKeyPoints(answer: InterviewAnswerEntity): List<String>? {
         return parseStringList(answer.keyPointsJson)
     }
 
-    private fun parseAnyList(json: String?): List<Any> {
+    private fun parseAnyList(json: String?): List<Any>? {
         if (json.isNullOrBlank()) {
-            return emptyList()
+            return null
         }
         return try {
             objectMapper.readValue(json, object : TypeReference<List<Any>>() {})
         } catch (e: Exception) {
             log.error("解析 JSON 失败", e)
-            emptyList()
+            null
         }
     }
 
-    private fun parseStringList(json: String?): List<String> {
+    private fun parseStringList(json: String?): List<String>? {
         if (json.isNullOrBlank()) {
-            return emptyList()
+            return null
         }
         return try {
             objectMapper.readValue(json, object : TypeReference<List<String>>() {})
         } catch (e: Exception) {
             log.error("解析 JSON 失败", e)
-            emptyList()
+            null
         }
     }
 
-    private fun parseQuestionList(json: String?): List<InterviewQuestionVo> {
+    private fun parseQuestionList(json: String?): List<InterviewQuestionVo>? {
         if (json.isNullOrBlank()) {
-            return emptyList()
+            return null
         }
         return try {
             objectMapper.readValue(json, object : TypeReference<List<InterviewQuestionVo>>() {})
         } catch (e: Exception) {
             log.error("解析 JSON 失败", e)
-            emptyList()
+            null
         }
     }
 

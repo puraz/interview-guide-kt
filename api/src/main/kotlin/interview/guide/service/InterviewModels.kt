@@ -83,25 +83,25 @@ data class InterviewQuestionVo(
 ) {
     companion object {
         /**
-         * 创建新问题（未回答状态）
-         */
-        fun create(index: Int, question: String, type: InterviewQuestionType, category: String): InterviewQuestionVo {
-            return InterviewQuestionVo(index, question, type, category, null, null, null, false, null)
-        }
+     * 创建新问题（未回答状态）
+     */
+    fun create(index: Int, question: String, type: InterviewQuestionType, category: String?): InterviewQuestionVo {
+        return InterviewQuestionVo(index, question, type, category, null, null, null, false, null)
+    }
 
         /**
          * 创建新问题（支持追问标记）
          */
-        fun create(
-            index: Int,
-            question: String,
-            type: InterviewQuestionType,
-            category: String,
-            isFollowUp: Boolean,
-            parentQuestionIndex: Int?
-        ): InterviewQuestionVo {
-            return InterviewQuestionVo(index, question, type, category, null, null, null, isFollowUp, parentQuestionIndex)
-        }
+    fun create(
+        index: Int,
+        question: String,
+        type: InterviewQuestionType,
+        category: String?,
+        isFollowUp: Boolean,
+        parentQuestionIndex: Int?
+    ): InterviewQuestionVo {
+        return InterviewQuestionVo(index, question, type, category, null, null, null, isFollowUp, parentQuestionIndex)
+    }
     }
 
     /**
@@ -149,7 +149,7 @@ data class InterviewReportVo(
      * 类别得分
      */
     data class CategoryScoreVo(
-        val category: String, // 类别
+        val category: String?, // 类别
         val score: Int, // 平均分
         val questionCount: Int // 题数
     )
@@ -173,7 +173,7 @@ data class InterviewReportVo(
         val questionIndex: Int, // 题目索引
         val question: String, // 问题内容
         val referenceAnswer: String?, // 参考答案
-        val keyPoints: List<String> // 要点列表
+        val keyPoints: List<String>? // 要点列表
     )
 }
 
@@ -191,10 +191,10 @@ data class InterviewDetailVo(
     val overallFeedback: String?, // 总体评价
     val createdAt: LocalDateTime?, // 创建时间
     val completedAt: LocalDateTime?, // 完成时间
-    val questions: List<Any>, // 题目列表
-    val strengths: List<String>, // 优势
-    val improvements: List<String>, // 改进建议
-    val referenceAnswers: List<Any>, // 参考答案
+    val questions: List<Any>?, // 题目列表
+    val strengths: List<String>?, // 优势
+    val improvements: List<String>?, // 改进建议
+    val referenceAnswers: List<Any>?, // 参考答案
     val answers: List<AnswerDetailVo> // 答案详情
 ) {
     /**
@@ -208,7 +208,7 @@ data class InterviewDetailVo(
         val score: Int?, // 得分
         val feedback: String?, // 反馈
         val referenceAnswer: String?, // 参考答案
-        val keyPoints: List<String>, // 要点列表
+        val keyPoints: List<String>?, // 要点列表
         val answeredAt: LocalDateTime? // 回答时间
     )
 }

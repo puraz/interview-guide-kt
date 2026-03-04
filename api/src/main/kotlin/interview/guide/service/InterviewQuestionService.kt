@@ -1,7 +1,6 @@
 package interview.guide.service
 
 import interview.guide.common.ai.StructuredOutputInvoker
-import interview.guide.common.exception.BusinessException
 import interview.guide.common.exception.ErrorCode
 import org.slf4j.LoggerFactory
 import org.springframework.ai.chat.client.ChatClient
@@ -121,11 +120,9 @@ class InterviewQuestionService(
             val questions = convertToQuestions(dto)
             log.info("成功生成 {} 个面试问题", questions.size)
             return questions
-        } catch (e: BusinessException) {
-            throw e
         } catch (e: Exception) {
             log.error("生成面试问题失败: {}", e.message, e)
-            throw BusinessException(ErrorCode.INTERVIEW_QUESTION_GENERATION_FAILED, "面试问题生成失败：${e.message}")
+            return generateDefaultQuestions(questionCount)
         }
     }
 
@@ -165,7 +162,7 @@ class InterviewQuestionService(
             }
             val type = parseQuestionType(q.type)
             val mainQuestionIndex = index
-            questions.add(InterviewQuestionVo.create(index++, questionText, type, q.category ?: ""))
+            questions.add(InterviewQuestionVo.create(index++, questionText, type, q.category))
 
             val followUps = sanitizeFollowUps(q.followUps)
             for ((i, followUp) in followUps.withIndex()) {
@@ -206,5 +203,64 @@ class InterviewQuestionService(
     private fun buildFollowUpCategory(category: String?, order: Int): String {
         val base = if (category.isNullOrBlank()) "追问" else category
         return "$base（追问$order）"
+    }
+
+    /**
+     * 生成默认问题（备用）
+     *
+     * @param count 题目数量 // 期望题数
+     * @return 默认问题列表 // 兜底问题
+     */
+    private fun generateDefaultQuestions(count: Int): List<InterviewQuestionVo> {
+        val questions = mutableListOf<InterviewQuestionVo>()
+
+        val defaultQuestions = arrayOf(
+            arrayOf("请介绍一下你在简历中提到的最重要的项目，你在其中承担了什么角色？", "PROJECT", "项目经历"),
+            arrayOf("MySQL的索引有哪些类型？B+树索引的原理是什么？", "MYSQL", "MySQL"),
+            arrayOf("Redis支持哪些数据结构？各自的使用场景是什么？", "REDIS", "Redis"),
+            arrayOf("Java中HashMap的底层实现原理是什么？JDK8做了哪些优化？", "JAVA_COLLECTION", "Java集合"),
+            arrayOf("synchronized和ReentrantLock有什么区别？", "JAVA_CONCURRENT", "Java并发"),
+            arrayOf("Spring的IoC和AOP原理是什么？", "SPRING", "Spring"),
+            arrayOf("MySQL事务的ACID特性是什么？隔离级别有哪些？", "MYSQL", "MySQL"),
+            arrayOf("Redis的持久化机制有哪些？RDB和AOF的区别？", "REDIS", "Redis"),
+            arrayOf("Java的垃圾回收机制是怎样的？常见的GC算法有哪些？", "JAVA_BASIC", "Java基础"),
+            arrayOf("线程池的核心参数有哪些？如何合理配置？", "JAVA_CONCURRENT", "Java并发")
+        )
+
+        var index = 0
+        val limit = minOf(count, defaultQuestions.size)
+        for (i in 0 until limit) {
+            val mainQuestion = defaultQuestions[i][0]
+            val type = InterviewQuestionType.valueOf(defaultQuestions[i][1])
+            val category = defaultQuestions[i][2]
+            questions.add(InterviewQuestionVo.create(index++, mainQuestion, type, category))
+
+            val mainQuestionIndex = index - 1
+            for (j in 0 until followUpCount) {
+                questions.add(
+                    InterviewQuestionVo.create(
+                        index++,
+                        buildDefaultFollowUp(mainQuestion, j + 1),
+                        type,
+                        buildFollowUpCategory(category, j + 1),
+                        true,
+                        mainQuestionIndex
+                    )
+                )
+            }
+        }
+
+        return questions
+    }
+
+    /**
+     * 默认追问构造
+     */
+    private fun buildDefaultFollowUp(mainQuestion: String, order: Int): String {
+        return if (order == 1) {
+            "基于“$mainQuestion”，请结合你亲自做过的一个真实场景展开说明。"
+        } else {
+            "基于“$mainQuestion”，如果线上出现异常，你会如何定位并给出修复方案？"
+        }
     }
 }

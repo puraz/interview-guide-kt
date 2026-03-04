@@ -1,7 +1,6 @@
 package interview.guide.service
 
 import interview.guide.common.ai.StructuredOutputInvoker
-import interview.guide.common.exception.BusinessException
 import interview.guide.common.exception.ErrorCode
 import org.slf4j.LoggerFactory
 import org.springframework.ai.chat.client.ChatClient
@@ -84,12 +83,9 @@ class ResumeGradingService(
             val result = convertToVo(dto, resumeText)
             log.info("简历分析完成，总分: {}", result.overallScore)
             return result
-        } catch (e: BusinessException) {
-            log.error("简历分析AI调用失败: {}", e.message, e)
-            throw e
         } catch (e: Exception) {
             log.error("简历分析失败: {}", e.message, e)
-            throw BusinessException(ErrorCode.RESUME_ANALYSIS_FAILED, "简历分析失败：${e.message}")
+            return createErrorResponse(resumeText, e.message ?: "未知错误")
         }
     }
 
@@ -115,6 +111,31 @@ class ResumeGradingService(
             dto.strengths,
             suggestions,
             originalText
+        )
+    }
+
+    /**
+     * 创建错误响应
+     *
+     * @param originalText 原始简历文本 // 回填原始内容
+     * @param errorMessage 错误信息 // 失败原因说明
+     * @return 错误结果 // 固定结构的失败响应
+     */
+    private fun createErrorResponse(originalText: String, errorMessage: String): ResumeAnalysisVo {
+        return ResumeAnalysisVo(
+            overallScore = 0,
+            scoreDetail = ResumeAnalysisVo.ScoreDetailVo(0, 0, 0, 0, 0),
+            summary = "分析过程中出现错误: $errorMessage",
+            strengths = emptyList(),
+            suggestions = listOf(
+                ResumeAnalysisVo.SuggestionVo(
+                    category = "系统",
+                    priority = "高",
+                    issue = "AI分析服务暂时不可用",
+                    recommendation = "请稍后重试，或检查AI服务是否正常运行"
+                )
+            ),
+            originalText = originalText
         )
     }
 }

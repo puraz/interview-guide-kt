@@ -101,7 +101,7 @@ class ResumeUploadService(
         fileValidationService.validateContentTypeByList(
             contentType,
             appConfig.allowedTypes,
-            "不支持的文件类型: ${contentType ?: "unknown"}"
+            "不支持的文件类型: $contentType" // 对齐Java提示，直接展示检测到的类型（可能为 null）
         )
     }
 
@@ -124,11 +124,12 @@ class ResumeUploadService(
                 "duplicate" to true
             )
         } else {
+            val analyzeStatus = (resume.analyzeStatus as? AsyncTaskStatus) ?: AsyncTaskStatus.PENDING // 状态兜底为PENDING
             mapOf(
                 "resume" to mapOf(
                     "id" to resume.id,
                     "filename" to resume.originalFilename,
-                    "analyzeStatus" to (resume.analyzeStatus.name)
+                    "analyzeStatus" to analyzeStatus.name // 返回当前分析状态
                 ),
                 "storage" to mapOf(
                     "fileKey" to (resume.storageKey ?: ""),

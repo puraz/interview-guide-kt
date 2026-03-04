@@ -68,8 +68,12 @@ class EvaluateStreamConsumer(
             return
         }
 
+        val questionsJson = session.questionsJson
+        if (questionsJson.isNullOrBlank()) {
+            throw IllegalStateException("问题列表为空，无法评估: sessionId=$sessionId")
+        }
         val questions: MutableList<InterviewQuestionVo> = objectMapper.readValue(
-            session.questionsJson ?: "[]",
+            questionsJson,
             object : TypeReference<List<InterviewQuestionVo>>() {}
         ).toMutableList()
 

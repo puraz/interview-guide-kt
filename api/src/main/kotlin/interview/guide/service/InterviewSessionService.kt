@@ -348,8 +348,13 @@ class InterviewSessionService(
 
     private fun restoreSessionFromEntity(entity: InterviewSessionEntity): InterviewSessionCache.CachedSession? {
         return try {
+            val questionsJson = entity.questionsJson
+            if (questionsJson.isNullOrBlank()) {
+                log.warn("恢复会话失败: questionsJson 为空, sessionId={}", entity.sessionId)
+                return null
+            }
             val questions: MutableList<InterviewQuestionVo> = objectMapper.readValue(
-                entity.questionsJson ?: "[]",
+                questionsJson,
                 object : TypeReference<List<InterviewQuestionVo>>() {}
             ).toMutableList()
 
