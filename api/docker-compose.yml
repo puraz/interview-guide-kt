@@ -160,7 +160,7 @@ services:
   #   - 反向代理 API 请求（通常在 Nginx 配置中处理）
   # =========================================
   frontend:
-    build: ../interview-guide/frontend
+    build: ../frontend
     container_name: interview-frontend
     depends_on:
       - app
