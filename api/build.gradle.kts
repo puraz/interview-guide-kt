@@ -56,7 +56,6 @@ kotlin {
 dependencyManagement {
     imports {
         mavenBom("org.springframework.boot:spring-boot-dependencies:4.0.0")
-        mavenBom("cn.dev33:sa-token-bom:1.44.0")
         mavenBom("cn.hutool:hutool-bom:5.8.43")
     }
 }
@@ -96,11 +95,6 @@ dependencies {
     implementation("org.springframework.ai:spring-ai-starter-model-openai:2.0.0-M1")
     implementation("org.springframework.ai:spring-ai-starter-vector-store-pgvector:2.0.0-M1")
 
-    // Security 相关
-    implementation("cn.dev33:sa-token-spring-boot3-starter")
-    implementation("cn.dev33:sa-token-redis-jackson")
-    implementation("cn.dev33:sa-token-spring-aop")
-    implementation("cn.dev33:sa-token-jwt")
     implementation("org.springframework.security:spring-security-crypto")
 
     // JSON 相关

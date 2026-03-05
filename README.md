@@ -11,7 +11,7 @@
 
 ## 技术栈
 
-- 后端：Kotlin、Spring Boot 4、Spring AI、JPA、Redis、PostgreSQL + pgvector、Sa-Token
+- 后端：Kotlin、Spring Boot 4、Spring AI、JPA、Redis、PostgreSQL + pgvector
 - 前端：React、Vite、Tailwind CSS、Axios
 - 存储：S3 兼容对象存储（RustFS/MinIO 等）
 
