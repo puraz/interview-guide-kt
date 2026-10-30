@@ -1,10 +1,10 @@
-import {getErrorMessage, request} from './request';
-import axios from 'axios';
-
-const API_BASE_URL = import.meta.env.PROD ? '' : 'http://localhost:8080';
+import { request } from './request';
+import { streamSse } from './stream';
+import type { InterviewSession } from '../types/interview';
 
 // 向量化状态
 export type VectorStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+export type QuestionGenStatus = 'NONE' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
 export interface KnowledgeBaseItem {
   id: number;
@@ -20,6 +20,8 @@ export interface KnowledgeBaseItem {
   vectorStatus: VectorStatus;
   vectorError: string | null;
   chunkCount: number;
+  questionGenStatus: QuestionGenStatus;
+  questionGenError: string | null;
 }
 
 // 统计信息
@@ -39,12 +41,15 @@ export interface UploadKnowledgeBaseResponse {
     name: string;
     category: string;
     fileSize: number;
-    contentLength: number;
+    vectorStatus: VectorStatus;
   };
   storage: {
     fileKey: string;
     fileUrl: string;
   };
+  /** 任务是否成功投递到异步队列；false 时文件已保存但状态为 FAILED，可重试 */
+  enqueueAccepted: boolean;
+  message: string;
   duplicate: boolean;
 }
 
@@ -57,6 +62,124 @@ export interface QueryResponse {
   answer: string;
   knowledgeBaseId: number;
   knowledgeBaseName: string;
+}
+
+export type KnowledgeBaseQuestionStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED' | 'STALE';
+
+export interface KnowledgeBaseQuestionFollowUp {
+  question: string;
+  referenceAnswer?: string | null;
+  keyPoints?: string[];
+  scoringRubric?: string | null;
+}
+
+export interface KnowledgeBaseQuestion {
+  id: number;
+  knowledgeBaseId: number;
+  knowledgeBaseName: string;
+  skillId: string;  // 后端兜底字段，固定为 knowledge-base，不再用于业务筛选
+  difficulty: string;
+  type: string | null;
+  category: string;  // 面试方向，由模型生成或用户填写，用于筛选和开始面试
+  question: string;
+  topicSummary: string | null;
+  referenceAnswer: string | null;
+  keyPoints: string[];
+  scoringRubric: string | null;
+  followUps: KnowledgeBaseQuestionFollowUp[];
+  sourceContext: string | null;
+  status: KnowledgeBaseQuestionStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GenerateKnowledgeBaseQuestionsRequest {
+  difficulty?: string;
+  questionCount: number;
+  followUpCount?: number;
+  categoryLimit?: number;
+  llmProvider?: string;
+}
+
+export interface QuestionGenerationConfig {
+  difficulty: string;
+  questionCount: number;
+  followUpCount: number;
+  categoryLimit: number;
+  llmProvider: string | null;
+}
+
+export interface QuestionGenStatusResponse {
+  knowledgeBaseId: number;
+  questionGenStatus: QuestionGenStatus;
+  questionGenTaskId: string | null;
+  questionGenConfig: QuestionGenerationConfig | null;
+  savedCount: number;
+  skippedCount: number;
+  message: string | null;
+  error: string | null;
+  updatedAt: string | null;
+}
+
+export interface SaveKnowledgeBaseQuestionRequest {
+  difficulty?: string;
+  type?: string | null;
+  category: string;
+  question: string;
+  topicSummary?: string | null;
+  referenceAnswer?: string | null;
+  keyPoints?: string[];
+  scoringRubric?: string | null;
+  followUps?: KnowledgeBaseQuestionFollowUp[];
+  sourceContext?: string | null;
+  status?: KnowledgeBaseQuestionStatus;
+}
+
+export interface ListKnowledgeBaseQuestionsParams {
+  status?: KnowledgeBaseQuestionStatus | '';
+  category?: string;
+  difficulty?: string;
+  keyword?: string;
+}
+
+export interface CategoryCount {
+  category: string;
+  count: number;
+}
+
+export interface CreateKnowledgeBaseInterviewRequest {
+  knowledgeBaseId: number;
+  category?: string;  // 不传则覆盖全部方向
+  difficulty?: string;
+  mainQuestionCount: number;
+  followUpCount: number;
+  llmProvider?: string;
+}
+
+export interface InterviewCategoryCapacity {
+  category: string;
+  availableQuestionCount: number;
+}
+
+export interface InterviewFollowUpCapacity {
+  followUpCount: number;
+  availableQuestionCount: number;
+  selectable: boolean;
+}
+
+export interface KnowledgeBaseInterviewCapacityResponse {
+  knowledgeBaseId: number;
+  category: string | null;
+  difficulty: string;
+  mainQuestionCount: number;
+  categories: InterviewCategoryCapacity[];
+  followUpOptions: InterviewFollowUpCapacity[];
+}
+
+export interface GetKnowledgeBaseInterviewCapacityParams {
+  category?: string;
+  difficulty: string;
+  mainQuestionCount: number;
 }
 
 export const knowledgeBaseApi = {
@@ -75,15 +198,12 @@ export const knowledgeBaseApi = {
     return request.upload<UploadKnowledgeBaseResponse>('/api/knowledgebase/upload', formData);
   },
 
-    /**
-     * 下载知识库文件
-     */
-    async downloadKnowledgeBase(id: number): Promise<Blob> {
-        const response = await axios.get(`${API_BASE_URL}/api/knowledgebase/${id}/download`, {
-            responseType: 'blob',
-        });
-        return response.data;
-    },
+  /**
+   * 下载知识库文件
+   */
+  async downloadKnowledgeBase(id: number): Promise<Blob> {
+    return request.download(`/api/knowledgebase/${id}/download`);
+  },
 
   /**
    * 获取所有知识库列表
@@ -103,8 +223,8 @@ export const knowledgeBaseApi = {
   /**
    * 获取知识库详情
    */
-  async getKnowledgeBase(id: number): Promise<KnowledgeBaseItem> {
-    return request.get<KnowledgeBaseItem>(`/api/knowledgebase/${id}`);
+  async getKnowledgeBase(id: number, signal?: AbortSignal): Promise<KnowledgeBaseItem> {
+    return request.get<KnowledgeBaseItem>(`/api/knowledgebase/${id}`, { signal });
   },
 
   /**
@@ -171,6 +291,89 @@ export const knowledgeBaseApi = {
     return request.post(`/api/knowledgebase/${id}/revectorize`);
   },
 
+  // ========== 知识库面试题库 ==========
+
+  async generateQuestions(
+    id: number,
+    req: GenerateKnowledgeBaseQuestionsRequest
+  ): Promise<QuestionGenStatusResponse> {
+    return request.post<QuestionGenStatusResponse>(
+      `/api/knowledgebase/${id}/questions/generate`,
+      req
+    );
+  },
+
+  async getQuestionGenerationStatus(id: number): Promise<QuestionGenStatusResponse> {
+    return request.get<QuestionGenStatusResponse>(
+      `/api/knowledgebase/${id}/questions/generation-status`
+    );
+  },
+
+  async listQuestions(
+    id: number,
+    params?: ListKnowledgeBaseQuestionsParams
+  ): Promise<KnowledgeBaseQuestion[]> {
+    const searchParams = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value) {
+          searchParams.append(key, value);
+        }
+      });
+    }
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return request.get<KnowledgeBaseQuestion[]>(`/api/knowledgebase/${id}/questions${query}`);
+  },
+
+  async listCategories(id: number): Promise<CategoryCount[]> {
+    return request.get<CategoryCount[]>(`/api/knowledgebase/${id}/questions/categories`);
+  },
+
+  async createQuestion(
+    id: number,
+    req: SaveKnowledgeBaseQuestionRequest
+  ): Promise<KnowledgeBaseQuestion> {
+    return request.post<KnowledgeBaseQuestion>(`/api/knowledgebase/${id}/questions`, req);
+  },
+
+  async updateQuestion(
+    id: number,
+    req: Partial<SaveKnowledgeBaseQuestionRequest>
+  ): Promise<KnowledgeBaseQuestion> {
+    return request.put<KnowledgeBaseQuestion>(`/api/knowledgebase/questions/${id}`, req);
+  },
+
+  async updateQuestionStatus(
+    id: number,
+    status: KnowledgeBaseQuestionStatus
+  ): Promise<KnowledgeBaseQuestion> {
+    return request.put<KnowledgeBaseQuestion>(`/api/knowledgebase/questions/${id}/status`, { status });
+  },
+
+  async deleteQuestion(id: number): Promise<void> {
+    return request.delete(`/api/knowledgebase/questions/${id}`);
+  },
+
+  async createInterviewSession(req: CreateKnowledgeBaseInterviewRequest): Promise<InterviewSession> {
+    return request.post<InterviewSession>('/api/knowledgebase-interviews/sessions', req);
+  },
+
+  async getInterviewCapacity(
+    id: number,
+    params: GetKnowledgeBaseInterviewCapacityParams
+  ): Promise<KnowledgeBaseInterviewCapacityResponse> {
+    const searchParams = new URLSearchParams({
+      difficulty: params.difficulty,
+      mainQuestionCount: String(params.mainQuestionCount),
+    });
+    if (params.category?.trim()) {
+      searchParams.set('category', params.category.trim());
+    }
+    return request.get<KnowledgeBaseInterviewCapacityResponse>(
+      `/api/knowledgebase/${id}/interview-capacity?${searchParams.toString()}`
+    );
+  },
+
   /**
    * 基于知识库回答问题
    */
@@ -190,91 +393,20 @@ export const knowledgeBaseApi = {
     onComplete: () => void,
     onError: (error: Error) => void
   ): Promise<void> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/knowledgebase/query/stream`, {
+    return streamSse({
+      url: '/api/knowledgebase/query/stream',
+      init: {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(req),
-      });
-
-      if (!response.ok) {
-        // 尝试解析错误响应
-        try {
-          const errorData = await response.json();
-          if (errorData && errorData.message) {
-            throw new Error(errorData.message);
-          }
-        } catch {
-          // 忽略解析错误
-        }
-        throw new Error(`请求失败 (${response.status})`);
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error('无法获取响应流');
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      // 辅助函数：处理 data: 行并提取内容
-      const extractContent = (line: string): string | null => {
-        if (!line.startsWith('data:')) {
-          return null;
-        }
-        let content = line.substring(5); // 移除 "data:" 前缀
-        // SSE 标准：如果 data: 后第一个字符是空格，这是协议层面的空格，应该移除
-        // 但这是可选的，有些实现可能没有这个空格
-        if (content.startsWith(' ')) {
-          content = content.substring(1);
-        }
-        // 如果内容为空（data: 或 data: ），可能表示换行，返回换行符
-        if (content.length === 0) {
-          return '\n';
-        }
-        return content;
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-
-        if (done) {
-          // 处理剩余的 buffer
-          if (buffer) {
-            const content = extractContent(buffer);
-            if (content) {
-              onMessage(content);
-            }
-          }
-          onComplete();
-          break;
-        }
-
-        // 解码数据块并添加到 buffer
-        buffer += decoder.decode(value, { stream: true });
-
-        // 按行分割处理 SSE 格式
-        // SSE 格式：data: content\n 或 data:content\n，空行 \n\n 表示事件结束
-        const lines = buffer.split('\n');
-        // 保留最后一行（可能不完整，等待更多数据）
-        buffer = lines.pop() || '';
-
-        // 处理完整的行
-        for (const line of lines) {
-          const content = extractContent(line);
-          if (content !== null) {
-            // 发送内容（保留所有格式，包括空格、换行等，因为 Markdown 需要）
-            onMessage(content);
-          }
-          // 空行（line === ''）在 SSE 中表示事件结束，但我们不需要特殊处理
-          // 因为每个 data: 行已经是一个完整的数据块
-        }
-      }
-    } catch (error) {
-      onError(new Error(getErrorMessage(error)));
-    }
+      },
+      onMessage,
+      onComplete,
+      onError,
+      parseMode: 'line',
+      trimDataPrefixSpace: true,
+    });
   },
 };

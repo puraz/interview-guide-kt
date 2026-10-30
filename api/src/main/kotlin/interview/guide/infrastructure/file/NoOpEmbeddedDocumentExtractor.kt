@@ -16,8 +16,12 @@ class NoOpEmbeddedDocumentExtractor : EmbeddedDocumentExtractor {
 
     /**
      * 是否应该解析嵌入文档
+     *
+     * @param metadata 文档元数据
+     * @return 始终返回 false，禁用嵌入文档解析
      */
     override fun shouldParseEmbedded(metadata: Metadata): Boolean {
+        // 记录跳过的嵌入文档（使用字符串常量，兼容不同 Tika 版本）
         val resourceName = metadata.get("resourceName")
         if (resourceName != null) {
             log.debug("Skip embedded document: {}", resourceName)
@@ -27,6 +31,13 @@ class NoOpEmbeddedDocumentExtractor : EmbeddedDocumentExtractor {
 
     /**
      * 解析嵌入文档（空实现）
+     *
+     * 由于 [shouldParseEmbedded] 返回 false，此方法不会被调用
+     *
+     * @param stream     输入流
+     * @param handler    内容处理器
+     * @param metadata   元数据
+     * @param outputHtml 是否输出 HTML
      */
     override fun parseEmbedded(
         stream: InputStream,

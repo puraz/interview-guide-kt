@@ -1,34 +1,32 @@
+/*
+ * AI Interview Platform - Backend Application (Kotlin)
+ * Spring Boot 4.1 + Spring AI 2.0 + PostgreSQL + pgvector + RustFS + Redis
+ */
+
 plugins {
     kotlin("jvm")
     kotlin("plugin.spring")
     kotlin("plugin.jpa")
+    kotlin("plugin.allopen")
     id("org.springframework.boot")
     id("io.spring.dependency-management")
 }
 
-group = "com.example"
+group = "com.interview"
 version = "1.0.0"
-description = ""
+description = "AI 面试平台后端（Kotlin 重写版）"
 
 repositories {
+    maven { url = uri("https://maven.aliyun.com/repository/public/") }
+    maven { url = uri("https://maven.aliyun.com/repository/spring/") }
     mavenCentral()
-    maven {
-        url = uri("https://artifacts-cn-beijing.volces.com/repository/douyin-openapi/")
-    }
-    maven {
-        url = uri("https://repo.spring.io/milestone")
-    }
-}
-
-configurations.all {
-    resolutionStrategy.eachDependency {
-    }
+    maven { url = uri("https://repo.spring.io/milestone") }
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-    kotlinOptions {
-        javaParameters = true   // 关键
-        freeCompilerArgs += "-Xjvm-default=all"
+    compilerOptions {
+        javaParameters.set(true)
+        freeCompilerArgs.addAll("-Xjsr305=strict", "-Xjvm-default=all")
     }
 }
 
@@ -42,11 +40,15 @@ java {
     }
 }
 
+// JPA 实体需要非 final 的 getter，Hibernate 才能生成懒加载代理
+allOpen {
+    annotation("jakarta.persistence.Entity")
+    annotation("jakarta.persistence.Embeddable")
+    annotation("jakarta.persistence.MappedSuperclass")
+}
+
 kotlin {
     sourceSets {
-        main {
-            // kotlin.srcDir("src/main/kotlin")
-        }
         test {
             kotlin.srcDir("src/test/kotlin")
         }
@@ -55,21 +57,22 @@ kotlin {
 
 dependencyManagement {
     imports {
-        mavenBom("org.springframework.boot:spring-boot-dependencies:4.0.0")
-        mavenBom("cn.hutool:hutool-bom:5.8.43")
+        mavenBom("org.springframework.boot:spring-boot-dependencies:4.1.0")
+        mavenBom("org.springaicommunity:spring-ai-agent-utils-bom:0.10.0")
+        mavenBom("org.springframework.ai:spring-ai-bom:2.0.0")
     }
 }
 
 dependencies {
-    implementation(platform("org.springframework.boot:spring-boot-dependencies:4.0.0"))
-
-    // Spring Boot 相关
-    implementation("org.springframework.boot:spring-boot-starter-web")
+    // Spring Boot（Boot 4 模块化 starter）
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-validation")
-    implementation("org.springframework.boot:spring-boot-starter-aop")
+    implementation("org.springframework.boot:spring-boot-starter-aspectj")
     implementation("org.springframework.boot:spring-boot-starter-cache")
     implementation("org.springframework.boot:spring-boot-starter-websocket")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 
@@ -84,16 +87,18 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
 
-    // 数据库 相关
-    runtimeOnly("org.postgresql:postgresql:42.7.1")
+    // 数据库相关
+    runtimeOnly("org.postgresql:postgresql")
+    runtimeOnly("org.flywaydb:flyway-database-postgresql")
     implementation("com.alibaba:druid-spring-boot-starter:1.2.27")
 
     // Hibernate Vector（pgvector）
     implementation("org.hibernate.orm:hibernate-vector")
 
-    // Spring AI（OpenAI兼容模式 + pgvector）
-    implementation("org.springframework.ai:spring-ai-starter-model-openai:2.0.0-M1")
-    implementation("org.springframework.ai:spring-ai-starter-vector-store-pgvector:2.0.0-M1")
+    // Spring AI（OpenAI 兼容模式 + pgvector）
+    implementation("org.springframework.ai:spring-ai-starter-model-openai")
+    implementation("org.springframework.ai:spring-ai-starter-vector-store-pgvector")
+    implementation("org.springaicommunity:spring-ai-agent-utils")
 
     implementation("org.springframework.security:spring-security-crypto")
 
@@ -103,19 +108,14 @@ dependencies {
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
     implementation("com.fasterxml.jackson.core:jackson-databind")
 
-    // OpenAPI 3 / Swagger UI（Spring Boot 3 官方推荐：springdoc-openapi）
-    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.1")
+    // OpenAPI 3 / Swagger UI
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2")
 
-    // OSS 相关（S3兼容）
+    // 指标监控
+    runtimeOnly("io.micrometer:micrometer-registry-prometheus")
+
+    // OSS 相关（S3 兼容）
     implementation("software.amazon.awssdk:s3:2.29.51")
-
-    // POI 相关
-    implementation("cn.afterturn:easypoi-annotation:4.5.0")
-    implementation("cn.afterturn:easypoi-web:4.5.0")
-    implementation("cn.afterturn:easypoi-base:4.5.0")
-    implementation("cn.afterturn:easypoi-spring-boot-starter:4.5.0") {
-        exclude(group = "cn.hutool", module = "hutool-all")
-    }
 
     // PDF 导出相关（iText 8）
     implementation("com.itextpdf:itext-core:8.0.5")
@@ -130,19 +130,10 @@ dependencies {
 
     implementation("com.google.code.gson:gson:2.13.2")
 
-    // Utils 相关
-    implementation("cn.hutool:hutool-core")
-    implementation("cn.hutool:hutool-extra")
-    implementation("cn.hutool:hutool-crypto")
-    implementation("cn.hutool:hutool-http")
-    implementation("cn.hutool:hutool-jwt")
-    implementation("com.github.whvcse:easy-captcha:1.6.2")
-    implementation("org.jsoup:jsoup:1.17.2")
-
-    // 其它
-    implementation("com.alibaba:transmittable-thread-local:2.14.5")
-    implementation("org.lionsoul:ip2region:2.7.0")
-    implementation("com.aizuda:aizuda-monitor:1.0.0")
+    // 阿里云 DashScope SDK（Qwen3 ASR/TTS）
+    implementation("com.alibaba:dashscope-sdk-java:2.22.7") {
+        exclude(group = "org.slf4j", module = "slf4j-simple")
+    }
 
     testImplementation("io.mockk:mockk:1.13.11")
 }
@@ -160,10 +151,45 @@ sourceSets {
     }
 }
 
-// 添加Kotlin源码目录中的XML文件到资源
+// 添加 Kotlin 源码目录中的 XML 文件到资源
 tasks.processResources {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from("src/main/kotlin") {
         include("**/*.xml")
+    }
+}
+
+// bootRun 自动加载仓库根目录 .env，并统一 JVM 编码
+tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+    jvmArgs(
+        "-Dfile.encoding=UTF-8",
+        "-Dconsole.encoding=UTF-8",
+        "-Dstdout.encoding=UTF-8",
+        "-Dstderr.encoding=UTF-8"
+    )
+    val envFile = rootProject.file(".env")
+    if (envFile.exists()) {
+        envFile.readLines().forEach { line ->
+            val trimmed = line.trim()
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                return@forEach
+            }
+            val eq = trimmed.indexOf('=')
+            if (eq <= 0) {
+                return@forEach
+            }
+            val key = trimmed.substring(0, eq).trim()
+            var value = trimmed.substring(eq + 1).trim()
+            if (value.length >= 2 &&
+                ((value.startsWith("\"") && value.endsWith("\"")) ||
+                    (value.startsWith("'") && value.endsWith("'")))
+            ) {
+                value = value.substring(1, value.length - 1)
+            }
+            // 已显式导出的环境变量优先，避免 .env 覆盖 shell/CI 配置
+            if (System.getenv(key) == null) {
+                environment(key, value)
+            }
+        }
     }
 }

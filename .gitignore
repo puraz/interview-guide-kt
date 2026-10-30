@@ -41,6 +41,16 @@ out/
 
 /**/*.log
 
+### 环境变量与密钥（只提交 .env.example） ###
+.env
+.env.*
+!.env.example
+
+### 前端构建产物 ###
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+
 ### Official Site ###
 /**/node_modules
 /**/.nuxt

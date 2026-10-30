@@ -8,7 +8,31 @@ import type {
   SubmitAnswerResponse
 } from '../types/interview';
 
+export interface TextSessionMeta {
+  sessionId: string;
+  skillId: string;
+  difficulty: string;
+  resumeId: number | null;
+  totalQuestions: number;
+  status: string;
+  evaluateStatus: string | null;
+  evaluateError: string | null;
+  overallScore: number | null;
+  sourceType: string | null;
+  knowledgeBaseId: number | null;
+  interviewCategory?: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
 export const interviewApi = {
+  /**
+   * 列出所有文字面试会话
+   */
+  async listSessions(): Promise<TextSessionMeta[]> {
+    return request.get<TextSessionMeta[]>('/api/interview/sessions');
+  },
+
   /**
    * 创建面试会话
    */

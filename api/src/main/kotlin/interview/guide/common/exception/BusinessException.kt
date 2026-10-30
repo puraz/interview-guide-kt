@@ -6,30 +6,27 @@ package interview.guide.common.exception
 open class BusinessException : RuntimeException {
 
     val code: Int // 业务错误码
+
     private val detailMessage: String // 业务错误消息
 
-    constructor(errorCode: ErrorCode) : super(errorCode.message) {
-        this.code = errorCode.code
-        this.detailMessage = errorCode.message
-    }
+    constructor(errorCode: ErrorCode) : this(errorCode, errorCode.message, null)
 
-    constructor(errorCode: ErrorCode, message: String) : super(message) {
-        this.code = errorCode.code
-        this.detailMessage = message
-    }
+    constructor(errorCode: ErrorCode, message: String) : this(errorCode, message, null)
 
     constructor(code: Int, message: String) : super(message) {
         this.code = code
         this.detailMessage = message
     }
 
-    constructor(message: String) : super(message) {
+    constructor(message: String) : this(ErrorCode.INTERNAL_ERROR.code, message)
+
+    constructor(message: String, cause: Throwable?) : super(message, cause) {
         this.code = ErrorCode.INTERNAL_ERROR.code
         this.detailMessage = message
     }
 
-    constructor(message: String, cause: Throwable) : super(message, cause) {
-        this.code = ErrorCode.INTERNAL_ERROR.code
+    constructor(errorCode: ErrorCode, message: String, cause: Throwable?) : super(message, cause) {
+        this.code = errorCode.code
         this.detailMessage = message
     }
 

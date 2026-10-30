@@ -1,26 +1,30 @@
 package interview.guide.common.async
 
 import interview.guide.common.constant.AsyncTaskStreamConstants
+import interview.guide.common.log.ErrorLogSanitizer
 import interview.guide.infrastructure.redis.RedisService
 import org.slf4j.LoggerFactory
 
 /**
- * Redis Stream 生产者模板基类
- * 统一消息发送骨架与失败处理逻辑
+ * Redis Stream 生产者模板基类。
+ * 统一消息发送骨架与失败处理逻辑。
  */
 abstract class AbstractStreamProducer<T>(
     private val redisService: RedisService // Redis 操作封装
 ) {
 
-    private val log = LoggerFactory.getLogger(AbstractStreamProducer::class.java)
+    companion object {
+        private val log = LoggerFactory.getLogger(AbstractStreamProducer::class.java)
+    }
 
     /**
-     * 发送任务消息
+     * 发送任务到 Redis Stream
      *
      * @param payload 业务载荷 // 任务数据
+     * @return 是否发送成功 // 投递失败时返回 false 并触发失败回调
      */
-    protected fun sendTask(payload: T) {
-        try {
+    protected fun sendTask(payload: T): Boolean {
+        return try {
             val messageId = redisService.streamAdd(
                 streamKey(),
                 buildMessage(payload),
@@ -28,18 +32,21 @@ abstract class AbstractStreamProducer<T>(
             )
             log.info("{}任务已发送到Stream: {}, messageId={}",
                 taskDisplayName(), payloadIdentifier(payload), messageId)
+            true
         } catch (e: Exception) {
             log.error("发送{}任务失败: {}, error={}",
-                taskDisplayName(), payloadIdentifier(payload), e.message, e)
-            onSendFailed(payload, "任务入队失败: ${e.message}")
+                taskDisplayName(), payloadIdentifier(payload), ErrorLogSanitizer.summarize(e),
+                ErrorLogSanitizer.forLogging(e))
+            onSendFailed(payload, "任务入队失败")
+            false
         }
     }
 
     /**
-     * 截断错误信息
+     * 截断错误信息，避免超出数据库字段长度
      *
-     * @param error 原始错误 // 原始错误文本
-     * @return 截断后的错误 // 最大500字符
+     * @param error 原始错误 // 可能为 null
+     * @return 截断后的错误 // 最大 500 字符
      */
     protected fun truncateError(error: String?): String? {
         if (error == null) {

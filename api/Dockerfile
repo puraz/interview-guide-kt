@@ -2,7 +2,7 @@
 # 第一阶段：构建环境 (Builder Stage)
 # 作用：使用包含 JDK 和 Gradle 的完整镜像来编译源代码
 # ==============================================================================
-FROM gradle:8.14-jdk21 AS builder
+FROM eclipse-temurin:21-jdk AS builder
 # 设置工作目录，后续命令都在这个目录下执行
 WORKDIR /workspace
 
@@ -10,7 +10,7 @@ WORKDIR /workspace
 # 技巧：利用 Docker 缓存层机制。
 # 只要 build.gradle, settings.gradle 等配置文件不变，这一层就会被缓存，
 # 从而跳过耗时的依赖下载步骤。
-COPY settings.gradle.kts build.gradle.kts gradlew ./
+COPY settings.gradle.kts build.gradle.kts gradle.properties gradlew ./
 COPY gradle gradle
 COPY api/build.gradle.kts api/
 
@@ -24,7 +24,7 @@ COPY api/build.gradle.kts api/
 # || true:
 #   "兜底策略" (Fail-Safe)。即使预下载失败（比如因配置不完整），也不要打断构建。
 #   反正后续的 'bootJar' 步骤会再次检查并下载依赖。
-RUN gradle :api:dependencies --no-daemon || true
+RUN chmod +x gradlew && ./gradlew :api:dependencies --no-daemon || true
 
 # 3. 复制源代码
 # 将整个项目代码复制进来。由于上面的步骤已经缓存了依赖，
@@ -34,7 +34,7 @@ COPY . .
 # 4. 执行构建
 # :api:bootJar -> 只构建 api 模块，生成可执行的 JAR 包
 # -x test      -> 跳过单元测试（加快构建速度）
-RUN gradle :api:bootJar --no-daemon -x test
+RUN ./gradlew :api:bootJar --no-daemon -x test
 
 # ==============================================================================
 # 第二阶段：运行环境 (Runtime Stage)

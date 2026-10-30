@@ -2,13 +2,33 @@ package interview.guide
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
+import org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
+import org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration
+import org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
+import org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
+import org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
+import org.springframework.scheduling.annotation.EnableScheduling
 
 /**
  * AI Interview Platform - 主启动类
+ *
+ * 排除 Spring AI 官方 OpenAI 自动配置：Provider 由 app.ai.providers / llm_provider_config 驱动，
+ * ChatClient 与 EmbeddingModel 统一由 LlmProviderRegistry、LlmEmbeddingConfig 创建。
  */
-@SpringBootApplication
+@EnableScheduling
+@SpringBootApplication(
+    exclude = [
+        OpenAiAudioSpeechAutoConfiguration::class,
+        OpenAiAudioTranscriptionAutoConfiguration::class,
+        OpenAiChatAutoConfiguration::class,
+        OpenAiEmbeddingAutoConfiguration::class,
+        OpenAiImageAutoConfiguration::class,
+        OpenAiModerationAutoConfiguration::class
+    ]
+)
 class App
 
 private val log: Logger = LoggerFactory.getLogger(App::class.java)

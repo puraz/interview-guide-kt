@@ -25,4 +25,12 @@ object CommonConstants {
         const val DEFAULT_SIZE: Int = 20 // 默认每页大小
         const val MAX_SIZE: Int = 100 // 最大每页大小
     }
+
+    /**
+     * 面试默认值
+     */
+    object InterviewDefaults {
+        const val SKILL_ID: String = "java-backend" // 默认面试技能ID
+        const val DIFFICULTY: String = "mid" // 默认面试难度
+    }
 }

@@ -98,8 +98,8 @@ export const historyApi = {
   /**
    * 获取简历详情
    */
-  async getResumeDetail(id: number): Promise<ResumeDetail> {
-    return request.get<ResumeDetail>(`/api/resumes/${id}/detail`);
+  async getResumeDetail(id: number, signal?: AbortSignal): Promise<ResumeDetail> {
+    return request.get<ResumeDetail>(`/api/resumes/${id}/detail`, { signal });
   },
 
   /**
@@ -113,22 +113,14 @@ export const historyApi = {
    * 导出简历分析报告PDF
    */
   async exportAnalysisPdf(resumeId: number): Promise<Blob> {
-    const response = await request.getInstance().get(`/api/resumes/${resumeId}/export`, {
-      responseType: 'blob',
-      skipResultTransform: true,
-    } as never);
-    return response.data;
+    return request.download(`/api/resumes/${resumeId}/export`);
   },
 
   /**
    * 导出面试报告PDF
    */
   async exportInterviewPdf(sessionId: string): Promise<Blob> {
-    const response = await request.getInstance().get(`/api/interview/sessions/${sessionId}/export`, {
-      responseType: 'blob',
-      skipResultTransform: true,
-    } as never);
-    return response.data;
+    return request.download(`/api/interview/sessions/${sessionId}/export`);
   },
 
   /**

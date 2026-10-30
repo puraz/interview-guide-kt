@@ -1,4 +1,6 @@
+-- =========================
 -- 简历模块表结构
+-- =========================
 
 CREATE TABLE IF NOT EXISTS resumes (
     id BIGSERIAL PRIMARY KEY,
@@ -12,11 +14,15 @@ CREATE TABLE IF NOT EXISTS resumes (
     uploaded_at TIMESTAMP NOT NULL, -- 上传时间
     last_accessed_at TIMESTAMP, -- 最后访问时间
     access_count INTEGER, -- 访问次数
-    analyze_status VARCHAR(20), -- 分析状态
-    analyze_error VARCHAR(500) -- 分析错误信息
+    analyze_status VARCHAR(20), -- 分析状态：PENDING/PROCESSING/COMPLETED/FAILED
+    analyze_error VARCHAR(500), -- 分析错误信息
+    analyze_updated_at TIMESTAMP, -- 最后一次有效进展时间（状态变化与心跳都推进）
+    analyze_recovery_count INTEGER NOT NULL DEFAULT 0, -- 卡住任务恢复次数
+    analyze_attempt_id VARCHAR(36) -- 当前执行代次 fencing token
 );
 
 CREATE INDEX IF NOT EXISTS idx_resume_hash ON resumes (file_hash);
+CREATE INDEX IF NOT EXISTS idx_resume_analyze_status_updated ON resumes (analyze_status, analyze_updated_at);
 
 CREATE TABLE IF NOT EXISTS resume_analyses (
     id BIGSERIAL PRIMARY KEY,
